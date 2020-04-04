@@ -7,16 +7,16 @@ import matplotlib.pyplot as plt
 from LightPipes import *
 from PIL import Image #for custom phase / intensity masks
 
-size=1*cm
+size=4*cm
 wavelength=781*nm
-N=1024
+N=2048
 w=20*mm
-f=10*cm #focal length
+f=100*cm #focal length
 z=2*f #propagation distance
 #initiate custom phase and intensity filters emulating the SLM
 I0 = np.asarray(Image.open("harambe.bmp"))[:,:,2] #extract only the first channel
 phi0 = np.asarray(Image.open("calib.bmp"))
-print(np.max(phi0))
+#print(np.max(phi0)
 #invert values
 I0= 255*np.ones(I0.shape)-I0
 phi0= 255*np.ones(phi0.shape)-phi0
