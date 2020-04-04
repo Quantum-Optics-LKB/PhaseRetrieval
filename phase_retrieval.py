@@ -8,6 +8,7 @@ from LightPipes import *
 from PIL import Image #for custom phase / intensity masks
 from time import time
 
+
 size=4*cm
 wavelength=781*nm
 N=1024
@@ -26,6 +27,8 @@ def phase_retrieval(I0: np.ndarray, I: np.ndarray, f: float, k: int):
     """
     # initiate propagating field
     A = Begin(size, wavelength, N)
+    # seed random phase
+    A = SubPhase(np.random.rand(I.shape[0], I.shape[1]), A)
     T0 = time()
     for i in range(k):
         T1 = time()
@@ -58,14 +61,14 @@ def phase_retrieval(I0: np.ndarray, I: np.ndarray, f: float, k: int):
     Phi = np.reshape(phi, (N,N))
     return Phi
 #initiate custom phase and intensity filters emulating the SLM
-phi0 = np.asarray(Image.open("calib_1024.bmp")) #extract only the first channel
+phi0 = np.asarray(Image.open("calib_1024_full.bmp")) #extract only the first channel
 #phi0 = np.asarray(Image.open("calib.bmp"))
 #print(np.max(phi0)
 
 phi0= (phi0+128)*(2*np.pi/255) #conversion to rads
 #apply SLM filter to initiate the field in the SLM plane
 Field = Begin(size, wavelength, N)
-Field=RectAperture(0.5*cm,0.5*cm,0,0,0,Field)
+#Field=RectAperture(0.5*cm,0.5*cm,0,0,0,Field)
 Field=SubPhase(phi0,Field)
 I1=np.reshape(Intensity(2, Field), (N,N))
 phi1=Phase(Field)
