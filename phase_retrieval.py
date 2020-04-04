@@ -6,6 +6,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from LightPipes import *
 from PIL import Image #for custom phase / intensity masks
+from time import time
 
 size=4*cm
 wavelength=781*nm
@@ -14,21 +15,49 @@ w=20*mm
 f=100*cm #focal length
 z=2*f #propagation distance
 
-def phase_retrieval(I0: np.ndarray, I: np.ndarray, f: float, N: int):
+def phase_retrieval(I0: np.ndarray, I: np.ndarray, f: float, k: int):
     """
     Assumes a 2f-2f setup to retrieve the phase from the intensity at the image plane
     :param I0: Source intensity field
     :param I: Intensity field from which to retrieve the phase
     :param f: Focal length of the lens conjugating the two planes
     :param N: Number of iterations for GS algorithm
-    :return: The calculated phase_map using Gerchberg-Saxton algorithm
+    :return phi: The calculated phase map using Gerchberg-Saxton algorithm
     """
-    for i in range(N):
-        #initiate propagating field
-        A=Begin()
-
-
-
+    # initiate propagating field
+    A = Begin(size, wavelength, N)
+    T0 = time()
+    for i in range(k):
+        T1 = time()
+        # Impose intensity
+        A = SubIntensity(I, A)
+        #Propagate backwards to lens
+        #A=Forvard(-z, A)
+        A=Fresnel(-z, A)
+        #Apply lens
+        A=Lens(f, 0, 0, A)
+        #Propagate backwards to SLM plane
+        #A=Forvard(-z, A)
+        A=Fresnel(-z, A)
+        #Extract phase
+        phi=Phase(A)
+        #define new field at SLM
+        A = SubIntensity(I0, A)
+        A = SubPhase(phi, A)
+        # Propagate forward to lens
+        #A = Forvard(z, A)
+        A=Fresnel(z, A)
+        # Apply lens
+        A = Lens(f, 0, 0, A)
+        # Propagate forward to image plane
+        #A = Forvard(z, A)
+        A= Fresnel(z, A)
+        T = time()-T1
+        print(f"Did a step ! It took me {T} seconds")
+    T=T0-time()
+    print(f"It took me {T} seconds")
+    Phi = np.reshape(phi, (N,N))
+    return Phi
 #initiate custom phase and intensity filters emulating the SLM
 phi0 = np.asarray(Image.open("harambe.bmp"))[:,:,2] #extract only the first channel
 #phi0 = np.asarray(Image.open("calib.bmp"))
@@ -39,7 +68,7 @@ phi0= (phi0+128)*(2*np.pi/255) #conversion to rads
 Field = Begin(size, wavelength, N)
 Field=RectAperture(1*cm,1*cm,0,0,0,Field)
 Field=SubPhase(phi0,Field)
-I1=Intensity(2, Field)
+I1=np.reshape(Intensity(2, Field), (N,N))
 phi1=Phase(Field)
 #propagate to the lens
 Field = Forvard(z, Field)
@@ -48,8 +77,15 @@ Field = Lens(f,0,0,Field)
 #propagate to image plane
 Field = Forvard(z, Field)
 #Retrieve intensity and phase
-I2 = Intensity(2,Field)
+I2 = np.reshape(Intensity(2,Field), (N,N))
 phi2 = Phase(Field)
+
+#phase retrieval
+phi3=phase_retrieval(I1, I2, f, 10)
+
+
+
+
 #Plot intensities @ different points
 fig = plt.figure(0)
 ax1 = fig.add_subplot(121)
@@ -58,10 +94,12 @@ ax1.imshow(I1, cmap="gray"); ax1.set_title("Intensity @z=0")
 ax2.imshow(I2, cmap="gray" ); ax2.set_title("Intensity @z=4f")
 #plot phase @ different points
 fig1 = plt.figure(1)
-ax1 = fig1.add_subplot(121)
-ax2 = fig1.add_subplot(122)
+ax1 = fig1.add_subplot(131)
+ax2 = fig1.add_subplot(132)
+ax3 = fig1.add_subplot(133)
 ax1.imshow(phi1, cmap="gray"); ax1.set_title("Phase @z=0")
 ax2.imshow(phi2, cmap="gray" ); ax2.set_title("Phase @z=4f")
+ax3.imshow(phi3, cmap="gray" ); ax3.set_title("Retrieved phase")
 
 
 plt.show()
