@@ -13,20 +13,6 @@ N=2048
 w=20*mm
 f=100*cm #focal length
 z=2*f #propagation distance
-
-def phase_retrieval(I0: np.ndarray, I: np.ndarray, f: float, N: int):
-    """
-    Assumes a 2f-2f setup to retrieve the phase from the intensity at the image plane
-    :param I0: Source intensity field
-    :param I: Intensity field from which to retrieve the phase
-    :param f: Focal length of the lens conjugating the two planes
-    :param N: Number of iterations for GS algorithm
-    :return: The calculated phase_map using Gerchberg-Saxton algorithm
-    """
-    for i in range(N):
-        #initiate propagating field
-        A=Begin()
-
 #initiate custom phase and intensity filters emulating the SLM
 phi0 = np.asarray(Image.open("harambe.bmp"))[:,:,2] #extract only the first channel
 #phi0 = np.asarray(Image.open("calib.bmp"))

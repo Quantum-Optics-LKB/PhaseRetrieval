@@ -27,6 +27,8 @@ def phase_retrieval(I0: np.ndarray, I: np.ndarray, f: float, N: int):
         #initiate propagating field
         A=Begin()
 
+
+
 #initiate custom phase and intensity filters emulating the SLM
 phi0 = np.asarray(Image.open("harambe.bmp"))[:,:,2] #extract only the first channel
 #phi0 = np.asarray(Image.open("calib.bmp"))
