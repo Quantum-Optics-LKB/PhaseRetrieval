@@ -25,42 +25,7 @@ def phase_retrieval(I0: np.ndarray, I: np.ndarray, f: float, k: int):
     :param N: Number of iterations for GS algorithm
     :return phi: The calculated phase map using Gerchberg-Saxton algorithm
     """
-    """
-    # initiate propagating field
-    A = Begin(size, wavelength, N)
-    # seed random phase
-    A = SubPhase(np.random.rand(I.shape[0], I.shape[1]), A)
-    T0 = time()
-    for i in range(k):
-        T1 = time()
-        # Impose intensity
-        A = SubIntensity(I, A)
-        #Propagate backwards to lens
-        A=Forvard(-z, A)
-        #Apply lens
-        A=Lens(f, 0, 0, A)
-        #Propagate backwards to SLM plane
-        A=Forvard(-z, A)
-        #Extract phase
-        phi=Phase(A)
-        #define new field at SLM
-        A = SubIntensity(I0, A)
-        A = SubPhase(phi, A)
-        # Propagate forward to lens
-        A = Forvard(z, A)
-        # Apply lens
-        A = Lens(f, 0, 0, A)
-        # Propagate forward to image plane
-        A = Forvard(z, A)
-        phi1 = Phase(A)
-        T = time()-T1
-        #print(f"Did a step ! It took me {T} seconds")
-        if i%10==0:
-            print(f"{100*(i/float(k))} % done")
-    T=time()-T0
-    print(f"It took me {T} seconds")
-    Phi = np.reshape(phi, (N,N))
-    """
+
     T0 = time()
     h, w = I0.shape
     #Initiate random phase map in SLM plane for starting point
@@ -96,6 +61,13 @@ def phase_retrieval(I0: np.ndarray, I: np.ndarray, f: float, k: int):
     T3 = time()-T0
     print(f"Elapsed time : {T3} s")
     return pm, signal_f
+def modulate(phi: np.ndarray):
+    """
+    A function to randomly modulating a phase map without introducing too much high frequency noise
+    :param phi:
+    :return: phi_m a modulated phase map
+    """
+
 
 #initiate custom phase and intensity filters emulating the SLM
 phi0 = np.asarray(Image.open("calib_1024.bmp")) #extract only the first channel
