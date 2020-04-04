@@ -10,14 +10,12 @@ from PIL import Image #for custom phase / intensity masks
 size=4*cm
 wavelength=781*nm
 N=2048
-w=20*mm
 f=100*cm #focal length
 z=2*f #propagation distance
 #initiate custom phase and intensity filters emulating the SLM
 phi0 = np.asarray(Image.open("harambe.bmp"))[:,:,2] #extract only the first channel
 #phi0 = np.asarray(Image.open("calib.bmp"))
 #print(np.max(phi0)
-
 phi0= (phi0+128)*(2*np.pi/255) #conversion to rads
 #apply SLM filter to initiate the field in the SLM plane
 Field = Begin(size, wavelength, N)
