@@ -90,7 +90,7 @@ def phase_retrieval(I0: np.ndarray, I: np.ndarray, f: float, k: int):
         signal_s = am_s * np.exp(pm_s * 1j)
         T2 = time()- T1
         if k % 10 == 0:
-            print(f"{100*(i/k)} % done ... ({T2} s per step)")
+            print(f"{round(100*(i/k), ndigits=3)} % done ... ({T2} s per step)")
     pm = pm_f
     T3 = time()-T0
     print(f"Elapsed time : {T3} s")
@@ -104,7 +104,7 @@ phi0 = np.asarray(Image.open("calib_1024.bmp")) #extract only the first channel
 phi0= (phi0+128)*(2*np.pi/255) #conversion to rads
 #apply SLM filter to initiate the field in the SLM plane
 Field = Begin(size, wavelength, N)
-#Field=RectAperture(0.5*cm,0.5*cm,0,0,0,Field)
+Field=RectAperture(0.5*cm,0.5*cm,0,0,0,Field)
 Field=SubPhase(phi0,Field)
 I1=np.reshape(Intensity(2, Field), (N,N))
 phi1=Phase(Field)
@@ -120,16 +120,26 @@ phi2 = Phase(Field)
 
 #phase retrieval
 phi3=phase_retrieval(I1, I2, f, 500)
-
+#propagate the computed solution to image plane
+A = Begin(size, wavelength, N)
+A = RectAperture(0.5*cm,0.5*cm,0,0,0,A)
+A = SubPhase(phi3, A)
+A = Forvard(z, A)
+A = Lens(f, 0, 0, A)
+A = Forvard(z, A)
+I3 = np.reshape(Intensity(2,A), (N,N))
 
 
 
 #Plot intensities @ different points
 fig = plt.figure(0)
-ax1 = fig.add_subplot(121)
-ax2 = fig.add_subplot(122)
+ax1 = fig1.add_subplot(131)
+ax2 = fig1.add_subplot(132)
+ax3 = fig1.add_subplot(133)
 ax1.imshow(I1, cmap="gray"); ax1.set_title("Intensity @z=0")
 ax2.imshow(I2, cmap="gray" ); ax2.set_title("Intensity @z=4f")
+ax3.imshow(I3, cmap="gray" ); ax3.set_title("Computed intensity from phase retrieval @z=4f")
+
 #plot phase @ different points
 fig1 = plt.figure(1)
 ax1 = fig1.add_subplot(131)
