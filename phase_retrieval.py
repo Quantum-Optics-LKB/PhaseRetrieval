@@ -89,7 +89,7 @@ def phase_retrieval(I0: np.ndarray, I: np.ndarray, f: float, k: int):
         #Define new propagating field
         signal_s = am_s * np.exp(pm_s * 1j)
         T2 = time()- T1
-        if k % 10 == 0:
+        if i % 10 == 0:
             print(f"{round(100*(i/k), ndigits=3)} % done ... ({T2} s per step)")
     pm = pm_f
     T3 = time()-T0
