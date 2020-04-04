@@ -133,9 +133,9 @@ I3 = np.reshape(Intensity(2,A), (N,N))
 
 #Plot intensities @ different points
 fig = plt.figure(0)
-ax1 = fig1.add_subplot(131)
-ax2 = fig1.add_subplot(132)
-ax3 = fig1.add_subplot(133)
+ax1 = fig.add_subplot(131)
+ax2 = fig.add_subplot(132)
+ax3 = fig.add_subplot(133)
 ax1.imshow(I1, cmap="gray"); ax1.set_title("Intensity @z=0")
 ax2.imshow(I2, cmap="gray" ); ax2.set_title("Intensity @z=4f")
 ax3.imshow(I3, cmap="gray" ); ax3.set_title("Computed intensity from phase retrieval @z=4f")
