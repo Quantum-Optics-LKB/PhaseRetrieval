@@ -1,6 +1,8 @@
 # -*- coding: utf-8 -*-
 """
 @author : Tangui ALADJIDI
+
+This script simulates the imaging of a picture of the gorilla Harambe, with an initial phase of an SLM's calibration
 """
 import numpy as np
 import matplotlib.pyplot as plt
