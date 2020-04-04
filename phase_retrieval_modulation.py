@@ -7,6 +7,7 @@ import matplotlib.pyplot as plt
 from LightPipes import *
 from PIL import Image #for custom phase / intensity masks
 from time import time
+from scipy.ndimage import interpolation
 
 
 size=4*cm
@@ -15,6 +16,7 @@ N=1024
 w=20*mm
 f=100*cm #focal length
 z=2*f #propagation distance
+N_mod = 10 #number of modulated samples for phase retrieval
 
 def phase_retrieval(I0: np.ndarray, I: np.ndarray, f: float, k: int):
     """
@@ -60,68 +62,68 @@ def phase_retrieval(I0: np.ndarray, I: np.ndarray, f: float, k: int):
     pm = pm_f
     T3 = time()-T0
     print(f"Elapsed time : {T3} s")
-    return pm, signal_f
+    return pm
 def modulate(phi: np.ndarray):
     """
     A function to randomly modulating a phase map without introducing too much high frequency noise
     :param phi:
     :return: phi_m a modulated phase map
     """
-
-
+    #generate (N/10)x(N/10) random matrices that will then be upscaled through interpolation
+    h, w = int(phi.shape[0]/10), int(phi.shape[1]/10)
+    M = np.random.rand(h, w)
+    phi_m = interpolation.zoom(M, phi.shape[0]/h)
+    return phi_m*phi
 #initiate custom phase and intensity filters emulating the SLM
 phi0 = np.asarray(Image.open("calib_1024.bmp")) #extract only the first channel
 #phi0 = np.asarray(Image.open("calib.bmp"))
 #print(np.max(phi0)
 
 phi0= (phi0+128)*(2*np.pi/255) #conversion to rads
-#apply SLM filter to initiate the field in the SLM plane
-Field = Begin(size, wavelength, N)
-Field=RectAperture(0.5*cm,0.5*cm,0,0,0,Field)
-Field=SubPhase(phi0,Field)
-I1=np.reshape(Intensity(2, Field), (N,N))
-phi1=Phase(Field)
-#propagate to the lens
-Field = Forvard(z, Field)
-#apply lens filter
-Field = Lens(f,0,0,Field)
-#propagate to image plane
-Field = Forvard(z, Field)
-#Retrieve intensity and phase
-I2 = np.reshape(Intensity(2,Field), (N,N))
-phi2 = Phase(Field)
+Phi_init=[]
+I_init=[]
+I_inter=[]
+Phi_final=[]
+I_final=[]
+#modulation sequence
+for i in range(N_mod):
+    #apply SLM filter to initiate the field in the SLM plane
+    Field = Begin(size, wavelength, N)
+    Field=RectAperture(0.5*cm,0.5*cm,0,0,0,Field)
+    phi=modulate(phi0)
+    Phi_init.append(phi)
+    Field=SubPhase(phi,Field)
+    I1=np.reshape(Intensity(2, Field), (N,N))
+    I_init.append(I1)
+    #propagate to the lens
+    Field = Forvard(z, Field)
+    #apply lens filter
+    Field = Lens(f,0,0,Field)
+    #propagate to image plane
+    Field = Forvard(z, Field)
+    #Retrieve intensity and phase
+    I2 = np.reshape(Intensity(2,Field), (N,N))
+    I_inter.append(I2)
+    #phase retrieval
+    phi3 =phase_retrieval(I1, I2, f, 50)
+    Phi_final.append(phi3)
+    #propagate the computed solution to image plane
+    A = Begin(size, wavelength, N)
+    A = RectAperture(0.5*cm,0.5*cm,0,0,0,A)
+    A = SubPhase(phi3, A)
+    A = Forvard(z, A)
+    A = Lens(f, 0, 0, A)
+    A = Forvard(z, A)
+    I_final.append(np.reshape(Intensity(2,A), (N,N)))
+Phi_final=np.array(Phi_final)
+I_final=np.array(I_final)
+I_inter=np.array(I_inter)
 
-#phase retrieval
-phi3, signal_f=phase_retrieval(I1, I2, f, 50)
-#propagate the computed solution to image plane
-A = Begin(size, wavelength, N)
-A = RectAperture(0.5*cm,0.5*cm,0,0,0,A)
-A = SubPhase(phi3, A)
-A = Forvard(z, A)
-A = Lens(f, 0, 0, A)
-A = Forvard(z, A)
-I3 = np.reshape(Intensity(2,A), (N,N))
-
-
-
-#Plot intensities @ different points
+Phi=np.mean(Phi_final, axis=0)
+I = np.mean(I_final, axis=0)
 fig = plt.figure(0)
-ax1 = fig.add_subplot(131)
-ax2 = fig.add_subplot(132)
-ax3 = fig.add_subplot(133)
-ax1.imshow(I1, cmap="gray"); ax1.set_title("Intensity @z=0")
-ax2.imshow(I2, cmap="gray" ); ax2.set_title("Intensity @z=4f")
-ax3.imshow(I3, cmap="gray" ); ax3.set_title("Computed intensity from phase retrieval @z=4f")
-
-#plot phase @ different points
-fig1 = plt.figure(1)
-ax1 = fig1.add_subplot(221)
-ax2 = fig1.add_subplot(222)
-ax3 = fig1.add_subplot(223)
-ax4 = fig1.add_subplot(224)
-ax1.imshow(phi1, cmap="gray"); ax1.set_title("Phase @z=0")
-ax2.imshow(phi2, cmap="gray" ); ax2.set_title("Phase @z=4f")
-ax3.imshow(phi3, cmap="gray" ); ax3.set_title("Retrieved phase")
-ax4.imshow(np.abs(signal_f), cmap="gray" ); ax4.set_title("Final FFT of GS")
-
+ax1 = fig.add_subplot(121)
+ax2 = fig.add_subplot(122)
+ax1.imshow(Phi, cmap="gray"); ax1.set_title("Mean reconstructed phase")
+ax2.imshow(I, cmap="gray"); ax2.set_title("Mean propagated intensity")
 plt.show()
