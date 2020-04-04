@@ -25,6 +25,7 @@ def phase_retrieval(I0: np.ndarray, I: np.ndarray, f: float, k: int):
     :param N: Number of iterations for GS algorithm
     :return phi: The calculated phase map using Gerchberg-Saxton algorithm
     """
+    """
     # initiate propagating field
     A = Begin(size, wavelength, N)
     # seed random phase
@@ -59,9 +60,44 @@ def phase_retrieval(I0: np.ndarray, I: np.ndarray, f: float, k: int):
     T=time()-T0
     print(f"It took me {T} seconds")
     Phi = np.reshape(phi, (N,N))
-    return Phi
+    """
+    T0 = time()
+    h, w = I0.shape
+    #Initiate random phase map in SLM plane for starting point
+    pm_s = np.random.rand(h, w)
+    #Assume flat wavefront in image plane
+    pm_f = np.ones((h, w))
+    #Intensity in SLM plane is source intensity
+    am_s = np.sqrt(I0)
+    #Intensity in image plane is target intensity
+    am_f = np.sqrt(I)
+    #initiate field in SLM plane
+    signal_s = am_s * np.exp(pm_s * 1j)
+
+    for i in range(k):
+        T1 = time()
+        #propagate to image plane
+        signal_f = np.fft.fft2(signal_s)
+        #retrieve phase in image plane
+        pm_f = np.angle(signal_f)
+        #impose target intensity
+        signal_f = am_f * np.exp(pm_f * 1j)
+        #propagate back to SLM plane
+        signal_s = np.fft.ifft2(signal_f)
+        #retrieve phase in SLM plane
+        pm_s = np.angle(signal_s)
+        #Define new propagating field
+        signal_s = am_s * np.exp(pm_s * 1j)
+        T2 = time()- T1
+        if k % 10 == 0:
+            print(f"{100*(i/k)} % done ... ({T2} s per step)")
+    pm = pm_f
+    T3 = time()-T0
+    print(f"Elapsed time : {T3} s")
+    return pm
+
 #initiate custom phase and intensity filters emulating the SLM
-phi0 = np.asarray(Image.open("calib_1024_full.bmp")) #extract only the first channel
+phi0 = np.asarray(Image.open("calib_1024.bmp")) #extract only the first channel
 #phi0 = np.asarray(Image.open("calib.bmp"))
 #print(np.max(phi0)
 
@@ -83,17 +119,17 @@ I2 = np.reshape(Intensity(2,Field), (N,N))
 phi2 = Phase(Field)
 
 #phase retrieval
-phi3=phase_retrieval(I1, I2, f, 50)
+phi3=phase_retrieval(I1, I2, f, 500)
 
 
 
 
 #Plot intensities @ different points
-#fig = plt.figure(0)
-#ax1 = fig.add_subplot(121)
-#ax2 = fig.add_subplot(122)
-#ax1.imshow(I1, cmap="gray"); ax1.set_title("Intensity @z=0")
-#ax2.imshow(I2, cmap="gray" ); ax2.set_title("Intensity @z=4f")
+fig = plt.figure(0)
+ax1 = fig.add_subplot(121)
+ax2 = fig.add_subplot(122)
+ax1.imshow(I1, cmap="gray"); ax1.set_title("Intensity @z=0")
+ax2.imshow(I2, cmap="gray" ); ax2.set_title("Intensity @z=4f")
 #plot phase @ different points
 fig1 = plt.figure(1)
 ax1 = fig1.add_subplot(131)
