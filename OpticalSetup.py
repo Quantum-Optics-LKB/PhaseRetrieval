@@ -7,6 +7,12 @@ import matplotlib.pyplot as plt
 from LightPipes import *
 from PIL import Image #for custom phase / intensity masks
 
+class Field:
+    def __init__(self):
+        self.Field = Begin()
+        self.Intensity =
+        #TODO
+        #should inherit the Field class from lightpipes more or less in a 2D array format.
 class Setup:
     def __init__(self, **kwargs):
         """
@@ -18,6 +24,7 @@ class Setup:
         self.wavelength=781*nm
         self.N=2048
         self.field = Begin(size, wavelength, N)
+        self.elements = []
         #optional arguments
         #TODO
         """
@@ -51,7 +58,7 @@ class Setup:
         """
         #TODO
         pass
-    def phase_retriever(self, I0: np.ndarray, I: np.ndarray, f: float, N: int):
+    def phase_retriever(self, I0: np.ndarray, I: np.ndarray, f: float, N: int, N_mod: int):
         """
         Retrieves the initial phase given the image plane of the setup
         :param I0: Source intensity field
@@ -60,8 +67,3 @@ class Setup:
         :param N: Number of iterations for GS algorithm
         :return: The calculated phase_map using Gerchberg-Saxton algorithm
         """
-        for i in range(N):
-            # initiate propagating field
-            A = Begin()
-
-

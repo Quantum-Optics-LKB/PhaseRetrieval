@@ -12,10 +12,10 @@ from mpl_toolkits.axes_grid1 import make_axes_locatable
 
 size = 4*36.9 * mm  # size of the SLM window
 wavelength = 781 * nm
-N = 512
+N = 256
 f = 10 * cm  # focal length
 z = 73*mm  # propagation distance
-N_mod = 1  # number of modulated samples for phase retrieval
+N_mod = 10  # number of modulated samples for phase retrieval
 
 
 def phase_retrieval(I0: np.ndarray, I: np.ndarray, k: int, unwrap: bool):
@@ -114,8 +114,8 @@ for i in range(N_mod):
     # apply SLM filter to initiate the field in the SLM plane
     Field = Begin(size, wavelength, N)
     Field = SubIntensity(I0, Field)
-    #phi_m = modulate(phi0, 1)
-    phi_m = np.zeros((N,N))
+    phi_m = modulate(phi0, 1)
+    #phi_m = np.zeros((N,N))
     phi = phi_m+phi0
     Phi_init.append(phi)
     Field = SubPhase(phi, Field)
