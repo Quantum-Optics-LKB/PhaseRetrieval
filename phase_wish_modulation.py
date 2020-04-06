@@ -14,8 +14,8 @@ size = 4*36.9 * mm  # size of the SLM window
 wavelength = 781 * nm
 N = 512
 f = 10 * cm  # focal length
-z = 500*mm  # propagation distance
-N_mod = 10  # number of modulated samples for phase retrieval
+z = 73*mm  # propagation distance
+N_mod = 1  # number of modulated samples for phase retrieval
 
 
 def phase_retrieval(I0: np.ndarray, I: np.ndarray, k: int, unwrap: bool):
@@ -79,19 +79,19 @@ def modulate(phi: np.ndarray, x: float):
     """
     A function to randomly modulating a phase map without introducing too much high frequency noise
     :param phi: Phase map to be modulated
-    :param x : Modulation intensity.
-    :return: phi_m a modulated phase map
+    :param x : Modulation intensity. Must be between 0 and 1.
+    :return: phi_m a modulated phase map to multiply to phi
     """
     # generate (N/10)x(N/10) random matrices that will then be upscaled through interpolation
-    h, w = int(phi.shape[0] / 15), int(phi.shape[1] / 15)
-    M = np.ones((h, w)) + x * (0.5 * np.ones((h, w)) - np.random.rand(h, w))
+    h, w = int(phi.shape[0] / 2.5), int(phi.shape[1] / 2.5)
+    M = x * (np.ones((h, w)) - 2*np.random.rand(h, w)) #random matrix between [-x and x]
     phi_m = interpolation.zoom(M, phi.shape[0] / h)
-    phi_m = phi_m%2*np.pi #bring phase between [0.2pi]
-    return phi_m * phi
+    phi_m = phi_m*np.pi #bring phase between [-pi.pi]
+    return phi_m
 
 
 # initiate custom phase and intensity filters emulating the SLM
-I0 = np.asarray(Image.open("harambe_512.bmp"))[:, :, 0]  # extract only the first channel
+I0 = np.asarray(Image.open("harambe_256.bmp"))[:, :, 0]  # extract only the first channel
 mask = np.ones((N,N))
 mask[np.where(I0==0)[0], np.where(I0==0)[1]]=0
 mask[np.where(I0>0)[0], np.where(I0>0)[1]]=1
@@ -99,7 +99,7 @@ mask[np.where(I0>0)[0], np.where(I0>0)[1]]=1
 #for i in range(N):
 #    for j in range(N):
 #        I0[i,j]=np.exp(-(1/N**2)*((N/2-i)**2+(N/2-j)**2))
-phi0 = np.asarray(Image.open("calib_512.bmp"))
+phi0 = np.asarray(Image.open("calib_256.bmp"))
 # phi0 = np.asarray(Image.open("calib.bmp"))
 phi0 = (128*np.ones(phi0.shape)-phi0) * (2 * np.pi / 256)# conversion to rads
 phi0 = mask*phi0 #gating the phase to the signal region.
@@ -114,7 +114,9 @@ for i in range(N_mod):
     # apply SLM filter to initiate the field in the SLM plane
     Field = Begin(size, wavelength, N)
     Field = SubIntensity(I0, Field)
-    phi = modulate(phi0, 1)
+    #phi_m = modulate(phi0, 1)
+    phi_m = np.zeros((N,N))
+    phi = phi_m+phi0
     Phi_init.append(phi)
     Field = SubPhase(phi, Field)
     I1 = np.reshape(Intensity(1, Field), (N, N))
@@ -127,14 +129,15 @@ for i in range(N_mod):
     I2 = np.reshape(Intensity(1, Field), (N, N))
     I_inter.append(I2)
     # phase retrieval
-    phi3 = phase_retrieval(I1, I2, 200, True)
+    phi3 = phase_retrieval(I1, I2, 4000, False)
+    phi3=phi3-phi_m
     Phi_final.append(phi3)
     # propagate the computed solution to image plane
     A = Begin(size, wavelength, N)
     A = SubIntensity(I0, A)
     A = SubPhase(phi3, A)
     A = Forvard(z, A)
-    I_final.append(np.reshape(Intensity(2, A), (N, N)))
+    I_final.append(np.reshape(Intensity(1, A), (N, N)))
 Phi_init = np.array(Phi_init)
 Phi_final = np.array(Phi_final)
 I_final = np.array(I_final)
@@ -159,6 +162,7 @@ im2=ax2.imshow(I_forvard, cmap="gray")
 ax2.set_title("Mean propagated intensity")
 im3=ax3.imshow(I, cmap="gray")
 ax3.set_title("Mean propagated intensity (with recontructed phase)")
+"""
 fig1 = plt.figure(1)
 ax1 = fig1.add_subplot(121)
 divider = make_axes_locatable(ax1)
@@ -169,4 +173,5 @@ ax1.set_title("Initial phase")
 fig.colorbar(im1, cax = cax)
 im2=ax2.imshow(I0, cmap="gray")
 ax2.set_title("Initial intensity")
+"""
 plt.show()
