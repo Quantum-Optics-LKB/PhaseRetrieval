@@ -44,7 +44,7 @@ def phase_retrieval(I0: np.ndarray, I: np.ndarray, k: int):
     for i in range(k):
         T1 = time()
         # propagate to image plane
-        signal_f = np.fft.fft2(signal_s)
+        signal_f = np.fft.fftshift(np.fft.fft2(signal_s))
         # retrieve phase in image plane
         pm_f = np.angle(signal_f)
         # impose target intensity
@@ -109,7 +109,7 @@ for i in range(N_mod):
     Phi_final.append(phi3)
     # propagate the computed solution to image plane
     A = Begin(size, wavelength, N)
-    A = RectAperture(0.5 * cm, 0.5 * cm, 0, 0, 0, A)
+    A = SubIntensity(I0, A)
     A = SubPhase(phi3, A)
     A = Forvard(z, A)
     A = Lens(f, 0, 0, A)
@@ -123,12 +123,15 @@ Phi = np.mean(Phi_final, axis=0)
 I = np.mean(I_final, axis=0)
 # Plot results : intensity and phase
 fig = plt.figure(0)
-ax1 = fig.add_subplot(121)
-ax2 = fig.add_subplot(122)
+ax1 = fig.add_subplot(131)
+ax2 = fig.add_subplot(132)
+ax3 = fig.add_subplot(133)
 ax1.imshow(Phi, cmap="gray");
 ax1.set_title("Mean reconstructed phase")
-ax2.imshow(I, cmap="gray");
+ax2.imshow(I_inter, cmap="gray");
 ax2.set_title("Mean propagated intensity")
+ax3.imshow(I, cmap="gray");
+ax3.set_title("Mean propagated intensity (with recontructed phase)")
 fig1 = plt.figure(1)
 ax1 = fig1.add_subplot(121)
 ax2 = fig1.add_subplot(122)
