@@ -10,12 +10,11 @@ from time import time
 from scipy.ndimage import interpolation
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 
-size = 4 * cm
+size = 4*36.9 * mm  # size of the SLM window
 wavelength = 781 * nm
-N = 256
-w = 36.9 * mm  # size of the SLM window
-f = 100 * cm  # focal length
-z = 25 * mm  # propagation distance
+N = 512
+f = 10 * cm  # focal length
+z = 500*mm  # propagation distance
 N_mod = 10  # number of modulated samples for phase retrieval
 
 
@@ -32,8 +31,6 @@ def phase_retrieval(I0: np.ndarray, I: np.ndarray, k: int, unwrap: bool):
 
     T0 = time()
     h, w = I0.shape
-    # Initiate random phase map in SLM plane for starting point
-    pm_s = np.random.rand(h, w)
     # Assume flat wavefront in image plane
     # pm_f = np.ones((h, w))
     # Intensity in image plane is target intensity
@@ -43,16 +40,16 @@ def phase_retrieval(I0: np.ndarray, I: np.ndarray, k: int, unwrap: bool):
     # initiate field in SLM plane
     # signal_s = am_s * np.exp(pm_s * 1j)
     signal_s = Begin(size, wavelength, N)
-    signal_s = SubIntensity(I0, signal_s)
-    signal_s = SubPhase(pm_s, signal_s)
+    #signal_s = SubIntensity(I0, signal_s)
+    #signal_s = SubPhase(pm_s, signal_s)
 
     for i in range(k):
         T1 = time()
         # propagate to image plane
         # signal_f = np.fft.fftshift(np.fft.fft2(signal_s, norm="ortho"))
         signal_f = Forvard(z, signal_s)
-        signal_f = Lens(f, 0, 0, signal_f)
-        signal_f = Forvard(z, signal_f)
+        #signal_f = Lens(f, 0, 0, signal_f)
+        #signal_f = Forvard(z, signal_f)
         # retrieve phase in image plane
         pm_f = Phase(signal_f)
         # impose target intensity
@@ -61,8 +58,8 @@ def phase_retrieval(I0: np.ndarray, I: np.ndarray, k: int, unwrap: bool):
         # propagate back to SLM plane
         # signal_s = np.fft.ifft2(signal_f)
         signal_s = Forvard(-z, signal_f)
-        signal_s = Lens(f, 0, 0, signal_s)
-        signal_s = Forvard(-z, signal_s)
+        #signal_s = Lens(f, 0, 0, signal_s)
+        #signal_s = Forvard(-z, signal_s)
         # Define new SLM field field by imposing source intensity
         # signal_s = am_s * np.exp(pm_s * 1j)
         signal_s = SubIntensity(I0, signal_s)
@@ -86,22 +83,26 @@ def modulate(phi: np.ndarray, x: float):
     :return: phi_m a modulated phase map
     """
     # generate (N/10)x(N/10) random matrices that will then be upscaled through interpolation
-    h, w = int(phi.shape[0] / 10), int(phi.shape[1] / 10)
+    h, w = int(phi.shape[0] / 15), int(phi.shape[1] / 15)
     M = np.ones((h, w)) + x * (0.5 * np.ones((h, w)) - np.random.rand(h, w))
     phi_m = interpolation.zoom(M, phi.shape[0] / h)
-    phi_m = phi_m%256 #bring phase between [0.2pi]
+    phi_m = phi_m%2*np.pi #bring phase between [0.2pi]
     return phi_m * phi
 
 
 # initiate custom phase and intensity filters emulating the SLM
-I0 = np.asarray(Image.open("harambe_256.bmp"))[:, :, 0]  # extract only the first channel
+I0 = np.asarray(Image.open("harambe_512.bmp"))[:, :, 0]  # extract only the first channel
+mask = np.ones((N,N))
+mask[np.where(I0==0)[0], np.where(I0==0)[1]]=0
+mask[np.where(I0>0)[0], np.where(I0>0)[1]]=1
 #I0=np.ones((N,N))
 #for i in range(N):
 #    for j in range(N):
 #        I0[i,j]=np.exp(-(1/N**2)*((N/2-i)**2+(N/2-j)**2))
-phi0 = np.asarray(Image.open("calib_256.bmp"))
+phi0 = np.asarray(Image.open("calib_512.bmp"))
 # phi0 = np.asarray(Image.open("calib.bmp"))
-phi0 =(128*np.ones(phi0.shape)-phi0) * (2 * np.pi / 256)  # conversion to rads
+phi0 = (128*np.ones(phi0.shape)-phi0) * (2 * np.pi / 256)# conversion to rads
+phi0 = mask*phi0 #gating the phase to the signal region.
 Phi_init = []
 I_init = []
 I_inter = []
@@ -113,15 +114,15 @@ for i in range(N_mod):
     # apply SLM filter to initiate the field in the SLM plane
     Field = Begin(size, wavelength, N)
     Field = SubIntensity(I0, Field)
-    phi = modulate(phi0, 0.1)
+    phi = modulate(phi0, 1)
     Phi_init.append(phi)
     Field = SubPhase(phi, Field)
     I1 = np.reshape(Intensity(1, Field), (N, N))
     I_init.append(I1)
     # propagate to the captor plane
     Field = Forvard(z, Field)
-    Field = Lens(f, 0, 0, Field)
-    Field = Forvard(z, Field)
+    #Field = Lens(f, 0, 0, Field)
+    #Field = Forvard(z, Field)
     # Retrieve intensity and phase
     I2 = np.reshape(Intensity(1, Field), (N, N))
     I_inter.append(I2)
@@ -134,6 +135,7 @@ for i in range(N_mod):
     A = SubPhase(phi3, A)
     A = Forvard(z, A)
     I_final.append(np.reshape(Intensity(2, A), (N, N)))
+Phi_init = np.array(Phi_init)
 Phi_final = np.array(Phi_final)
 I_final = np.array(I_final)
 I_inter = np.array(I_inter)
@@ -142,7 +144,7 @@ Phi = np.mean(Phi_final, axis=0)
 I = np.mean(I_final, axis=0)
 I_forvard = np.mean(I_inter, axis=0)
 #Compute RMS
-RMS=(1/2*np.pi)*np.sqrt(np.mean((Phi-phi0)**2))
+RMS=(1/2*np.pi)*np.sqrt(np.mean((mask*(Phi-phi0))**2))
 # Plot results : intensity and phase
 fig = plt.figure(0)
 ax1 = fig.add_subplot(131)
