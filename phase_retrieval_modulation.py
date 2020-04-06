@@ -34,11 +34,10 @@ def phase_retrieval(I0: np.ndarray, I: np.ndarray, f: float, k: int):
     pm_s = np.random.rand(h, w)
     #Assume flat wavefront in image plane
     pm_f = np.ones((h, w))
-    #Intensity in SLM plane is source intensity
-    #am_s = np.sqrt(I0)
-    am_s = np.sqrt(I)
     #Intensity in image plane is target intensity
-    am_f = np.ones((h, w))
+    am_s = np.sqrt(I)
+    #Intensity in SLM plane is target intensity
+    am_f = np.sqrt(I0)
     #initiate field in SLM plane
     signal_s = am_s * np.exp(pm_s * 1j)
 
@@ -48,7 +47,7 @@ def phase_retrieval(I0: np.ndarray, I: np.ndarray, f: float, k: int):
         signal_f = np.fft.fft2(signal_s)
         #retrieve phase in slm plane
         pm_f = np.angle(signal_f)
-        #impose uniform intensity (no constraint)
+        #impose source intensity
         signal_f = am_f * np.exp(pm_f * 1j)
         #propagate to image plane
         signal_s = np.fft.ifft2(signal_f)
