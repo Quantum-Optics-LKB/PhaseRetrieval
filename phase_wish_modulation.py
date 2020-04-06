@@ -121,6 +121,7 @@ I_inter = np.array(I_inter)
 # Average out the modulations to get final result
 Phi = np.mean(Phi_final, axis=0)
 I = np.mean(I_final, axis=0)
+I_forvard = np.mean(I_inter, axis=0)
 # Plot results : intensity and phase
 fig = plt.figure(0)
 ax1 = fig.add_subplot(131)
@@ -128,7 +129,7 @@ ax2 = fig.add_subplot(132)
 ax3 = fig.add_subplot(133)
 ax1.imshow(Phi, cmap="gray");
 ax1.set_title("Mean reconstructed phase")
-ax2.imshow(I_inter, cmap="gray");
+ax2.imshow(I_forvard, cmap="gray");
 ax2.set_title("Mean propagated intensity")
 ax3.imshow(I, cmap="gray");
 ax3.set_title("Mean propagated intensity (with recontructed phase)")
