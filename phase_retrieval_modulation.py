@@ -84,7 +84,7 @@ I_init=[]
 I_inter=[]
 Phi_final=[]
 I_final=[]
-#modulation sequence
+#modulation sequence : modulate with N_mod random SLM phase masks
 for i in range(N_mod):
     #apply SLM filter to initiate the field in the SLM plane
     Field = Begin(size, wavelength, N)
@@ -117,9 +117,10 @@ for i in range(N_mod):
 Phi_final=np.array(Phi_final)
 I_final=np.array(I_final)
 I_inter=np.array(I_inter)
-
+#Average out the modulations to get final result
 Phi=np.mean(Phi_final, axis=0)
 I = np.mean(I_final, axis=0)
+#Plot results : intensity and phase
 fig = plt.figure(0)
 ax1 = fig.add_subplot(121)
 ax2 = fig.add_subplot(122)
