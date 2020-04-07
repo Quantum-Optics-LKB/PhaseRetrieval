@@ -73,8 +73,7 @@ def phase_retrieval(I0: np.ndarray, I: np.ndarray, k: int, unwrap: bool, thresho
         T1 = time()
         signal_f = SubIntensity(I*mask_sr+I_f_old*mask_nr, signal_f)  # Substitute the measured far field into the field only in the signal region
         signal_s = Forvard(-z, signal_f)  # Propagate back to the near field
-        I_s = Intensity(0, signal_s)
-        signal_s = SubIntensity(I0*mask_sr+I_s*mask_nr, signal_s)  # Substitute the measured near field into the field only in the signal region.
+        signal_s = SubIntensity(I0, signal_s)  # Substitute the measured near field into the field
         signal_f = Forvard(z, signal_s)  # Propagate to the far field
         I_f_old= Intensity(0, signal_f) # retrieve far field intensity
         T2 = time() - T1
