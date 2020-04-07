@@ -14,7 +14,7 @@ print(LPversion)
 size=11*mm; #The CCD-sensor has an area of size x size (NB LightPipes needs square grids!)
 wavelength=632.8*nm; #wavelength of the HeNe laser used
 z=2*m; #propagation distance from near to far field
-N_iterations=300 #number of iterations
+N_iterations=100 #number of iterations
 
 #Read near and far field (at a distance of z=2 m) from disk:
 f=open('Inear.prn','r')
@@ -42,7 +42,7 @@ plt.title('Measured Intensity far field');plt.axis ('off');
 F=Begin(size,wavelength,N);
 
 #The iteration:
-for k in range(1,100):
+for k in range(1,N_iterations):
     print(k)
     F=SubIntensity(Ifar,F) #Substitute the measured far field into the field
     F=Interpol(size_new,N_new,0,0,0,1,F);#interpolate to a new grid

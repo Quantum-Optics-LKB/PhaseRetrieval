@@ -11,14 +11,14 @@ from scipy.ndimage import interpolation
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 
 N = 512
-size = N*3.74 * um  # size of the SLM window
-wavelength = 781 * nm
+size = N*6.4 * um  # size of the SLM window
+wavelength = 532 * nm
 f = 1 * cm  # focal length
-z = 4.5*mm  # propagation distance
-N_mod = 10  # number of modulated samples for phase retrieval
+z = 25*mm  # propagation distance
+N_mod = 1  # number of modulated samples for phase retrieval
+mod_intensity=0.2
 
-
-def phase_retrieval(I0: np.ndarray, I: np.ndarray, k: int, unwrap: bool, mask_nr: np.ndarray, mask_sr: np.ndarray):
+def phase_retrieval(I0: np.ndarray, I: np.ndarray, k: int, unwrap: bool, threshold=1e-2,**kwargs):
     """
     Assumes a 2f-2f setup to retrieve the phase from the intensity at the image plane
     :param I0: Source intensity field
@@ -26,35 +26,61 @@ def phase_retrieval(I0: np.ndarray, I: np.ndarray, k: int, unwrap: bool, mask_nr
     :param f: Focal length of the lens conjugating the two planes
     :param N: Number of iterations for GS algorithm
     :param unwrap : Phase unwrapping at the end
-    :param mask_sr : Signal region
-    :param mask_nr : Noise region
+    :param threshold : Threshold for automatic mask float in [0,1] default is 1e-2
+    :param **mask_sr : Signal region  np.ndarray
+    :param **mask_nr : Noise region  np.ndarray
     :return phi: The calculated phase map using Gerchberg-Saxton algorithm
     """
+    h, w = I0.shape
+    #if no masks are specified, the function defines one
+    if "mask_sr" not in kwargs:
+        #detect outermost non zero target intensity point
+        non_zero=np.array(np.where(I>threshold))
+        non_zero_offset=np.zeros(non_zero.shape)
+        #offset relative to center
+        non_zero_offset[0]=non_zero[0]-(h/2)*np.ones(len(non_zero[0]))
+        non_zero_offset[1] =non_zero[1]-(w / 2) * np.ones(len(non_zero[1]))
+        #Determine radii of each non-zero point
+        R_non_zero = np.sqrt(non_zero_offset[0]**2 + non_zero_offset[1]**2)
+        R_max=np.where(R_non_zero==np.max(abs(R_non_zero)))[0][0] #if there are several equally far points, it takes the
+                                                                  # first one
+        i_max, j_max = int(h/2 + int(abs(non_zero_offset[0][R_max]))), int(w/2 + int(abs(non_zero_offset[1][R_max])))
+        i_min, j_min = int(h/2 - int(abs(non_zero_offset[0][R_max]))), int(w/2 - int(abs(non_zero_offset[1][R_max])))
+        delta_i=int(i_max-i_min)
+        delta_j=int(j_max-j_min)
+        mask_sr=np.zeros(I.shape)
+        if delta_i>delta_j:
+            mask_sr[i_min:i_max, i_min:i_max]=1
+        else :
+            mask_sr[j_min:j_max, j_min:j_max] = 1
+        mask_nr=np.ones(mask_sr.shape)-mask_sr
+        fig=plt.figure(0)
+        ax1 = fig.add_subplot(121)
+        ax2 = fig.add_subplot(122)
+        ax1.imshow(I, cmap="gray")
+        ax1.set_title("Target intensity")
+        ax2.imshow(mask_sr, cmap="gray")
+        ax2.set_title(f"Signal region (Threshold = {threshold})")
+        scat = ax2.scatter(non_zero[0][R_max],non_zero[1][R_max], color='r')
+        scat.set_label('Threshold point')
+        plt.legend()
+        plt.show()
 
     T0 = time()
-    h, w = I0.shape
-    # Assume flat wavefront in image plane
-    # pm_f = np.ones((h, w))
-    # Intensity in image plane is target intensity
-    # am_f = np.sqrt(I)
-    # Intensity in SLM plane is target intensity
-    # am_s = np.sqrt(I0)
-    # initiate field in SLM plane
-    # signal_s = am_s * np.exp(pm_s * 1j)
     signal_f = Begin(size, wavelength, h)
-    #signal_s = SubPhase(pm_s, signal_s)
-
+    I_f_old=np.zeros(I.shape)
     for i in range(k):
         T1 = time()
-        signal_f = SubIntensity(I, signal_f)  # Substitute the measured far field into the field
+        signal_f = SubIntensity(I*mask_sr+I_f_old*mask_nr, signal_f)  # Substitute the measured far field into the field only in the signal region
         signal_s = Forvard(-z, signal_f)  # Propagate back to the near field
-        signal_s = SubIntensity(I0, signal_s)  # Substitute the measured near field into the field
+        I_s = Intensity(0, signal_s)
+        signal_s = SubIntensity(I0*mask_sr+I_s*mask_nr, signal_s)  # Substitute the measured near field into the field only in the signal region.
         signal_f = Forvard(z, signal_s)  # Propagate to the far field
-
+        I_f_old= Intensity(0, signal_f) # retrieve far field intensity
         T2 = time() - T1
         if i % 10 == 0:
             print(f"{round(100 * (i / k), ndigits=3)} % done ... ({T2} s per step)")
-        pm_s=Phase(signal_s)
+    pm_s = Phase(signal_s)
     if unwrap :
         pm_s = PhaseUnwrap(pm_s)
     pm_s = np.reshape(pm_s, (h, w))
@@ -71,7 +97,7 @@ def modulate(phi: np.ndarray, x: float):
     :return: phi_m a modulated phase map to multiply to phi
     """
     # generate (N/10)x(N/10) random matrices that will then be upscaled through interpolation
-    h, w = int(phi.shape[0] / 2.5), int(phi.shape[1] / 2.5)
+    h, w = int(phi.shape[0] / 10), int(phi.shape[1] / 10)
     M = x * (np.ones((h, w)) - 2*np.random.rand(h, w)) #random matrix between [-x and x]
     phi_m = interpolation.zoom(M, phi.shape[0] / h)
     phi_m = phi_m*np.pi #bring phase between [-pi.pi]
@@ -96,20 +122,26 @@ Phi_init = []
 I_init = []
 I_inter = []
 Phi_final = []
+Phi_m = []
 I_final = []
+#define the 0 sum random patterns
+for i in range(int(N_mod/2)):
+    phi_m=modulate(phi0, mod_intensity)
+    Phi_m.append(phi_m)
+    Phi_m.append(-phi_m)
 # modulation sequence : modulate with N_mod random SLM phase masks
 for i in range(N_mod):
     print(f"Modulation step {i+1} of {N_mod}")
     # apply SLM filter to initiate the field in the SLM plane
     Field = Begin(size, wavelength, N)
     Field = SubIntensity(I0, Field)
-    phi_m = modulate(phi0, 1)
-    #phi_m = np.zeros((N,N))
+    phi_m = np.zeros((N,N))
+    #phi_m=Phi_m[i]
     phi = phi_m+phi0
     Phi_init.append(phi)
     Field = SubPhase(phi, Field)
     I_init.append(I0)
-    # propagate to the captor plane
+    # propagate to the sensor plane
     Field = Forvard(z, Field)
     #Field = Lens(f, 0, 0, Field)
     #Field = Forvard(z, Field)
@@ -117,9 +149,7 @@ for i in range(N_mod):
     I2 = np.reshape(Intensity(1, Field), (N, N))
     I_inter.append(I2)
     # phase retrieval
-    phi3 = phase_retrieval(I0, I2, 200, True, mask_sr, mask_nr)
-    #Remove the modulation
-    phi3=phi3-phi_m
+    phi3 = phase_retrieval(I0, I2, 1000, False, threshold=1e-3)
     Phi_final.append(phi3)
     # propagate the computed solution to image plane
     A = Begin(size, wavelength, N)
@@ -134,10 +164,15 @@ I_inter = np.array(I_inter)
 # Average out the modulations to get final result
 I_inter_m = np.mean(I_inter, axis=0)
 Phi = np.mean(Phi_final, axis=0)
-I = np.mean(I_final, axis=0)
+A = Begin(size, wavelength, N)
+A = SubIntensity(I0, A)
+A = SubPhase(Phi, A)
+A = Forvard(z, A)
+I=(np.reshape(Intensity(0, A), (N, N)))
 I_forvard = np.mean(I_inter, axis=0)
 #Compute RMS
 RMS=(1/2*np.pi)*np.sqrt(np.mean((mask_sr*(Phi-phi0))**2))
+RMS_1=np.sqrt(np.mean((I-I_inter_m)**2))
 # Plot results : intensity and phase
 fig = plt.figure(0)
 ax1 = fig.add_subplot(131)
@@ -146,12 +181,15 @@ cax = divider.append_axes('right', size='5%', pad=0.05)
 ax2 = fig.add_subplot(132)
 ax3 = fig.add_subplot(133)
 im1=ax1.imshow(Phi, cmap="gray", vmin=-np.pi, vmax=np.pi)
-ax1.set_title(f"Mean reconstructed phase RMS={RMS}")
+ax1.set_title(f"Mean reconstructed phase")
+ax1.text(8, 18, f"RMS = {round(RMS, ndigits=3)}", bbox={'facecolor': 'white', 'pad': 3})
 fig.colorbar(im1, cax = cax)
 im2=ax2.imshow(I_forvard, cmap="gray")
 ax2.set_title("Mean propagated intensity")
 im3=ax3.imshow(I, cmap="gray")
-ax3.set_title("Mean propagated intensity (with recontructed phase)")
+ax3.text(8, 18, f"RMS = {round(RMS_1, ndigits=3)}", bbox={'facecolor': 'white', 'pad': 3})
+ax3.set_title("Propagated intensity (with mean recontructed phase)")
+
 
 fig1 = plt.figure(1)
 ax1 = fig1.add_subplot(131)
