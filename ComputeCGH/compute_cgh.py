@@ -140,21 +140,21 @@ for element in conf["setup"]:
 # initiate custom phase and intensity filters emulating the SLM
 I = np.asarray(Image.open(args.I))
 I0 = np.asarray(Image.open(args.I0))
-h, w = I.shape
-h_0, w_0 = I0.shape
-if h!=h_0:
-    print("Warning : Different target and initial intensity dimensions. Interpolation will be used")
-if args.phi0:
-    phi0 = np.asarray(Image.open(args.phi0))
-else :
-    phi0=np.ones((h_0, w_0))
 if I.ndim==3:
     print("Target intensity is a multi-level image, taking the first layer")
     I = np.asarray(Image.open(args.I))[:, :, 0] # extract only the first channel if needed
 if I0.ndim==3:
     print("Initial intensity is a multi-level image, taking the first layer")
     I0 = np.asarray(Image.open(args.I0))[:, :, 0]
-
+h, w = I.shape
+h_0, w_0 = I0.shape
+# if the initial phase was supplied, assign it. If not flat wavefront.
+if args.phi0:
+    phi0 = np.asarray(Image.open(args.phi0))
+else :
+    phi0=np.zeros((h_0, w_0))
+if h!=h_0:
+    print("Warning : Different target and initial intensity dimensions. Interpolation will be used")
 if h!=w:
     print("Non square target intensity specified. Target intensity will be extended with zeros to be square.")
     L=max(h,w) #size of the square
@@ -176,74 +176,27 @@ if h_0!=w_0:
     tmp[i:j,k:l]=I0
     I0=tmp
 #Some smart thing for padding using a diffraction criterion to estimate beam widening.
+#Diffraction angle for a slit of width w : sin(theta)=lambda/w
+#approximate width after z : w+2*z*lambda/w (not a lot at optical wavelengths with
+#We take the smallest dimension of the source intensity :
+smallest_dim = (min(h_0,w_0)/max(h_0,w_0))*size
+
 #TODO
-N = I0.shape[0]
-phi0_sr = np.ones((N,N)) #signal region
-phi0_sr[np.where(I0==0)[0], np.where(I0==0)[1]]=0
-phi0_sr[np.where(I0>0)[0], np.where(I0>0)[1]]=1
-phi0_nr=np.ones((N,N))-phi0_sr
-I0=np.ones((N,N))*phi0_sr
 #Conversion of the initial phase to rad
 phi0 = ((SLM_levels/2)*np.ones(phi0.shape)-phi0) * (2 * np.pi / SLM_levels)
 phi0 = phi0_sr*phi0
 
+# phase retrieval
+phi3, mask_sr = phase_retrieval(I0, I, N_gs, False, threshold=mask_threshold)
+# propagate the computed solution to image plane
+A = Begin(size, wavelength, N)
+A = SubIntensity(I0, A)
+A = SubPhase(phi3, A)
+A = Forvard(z, A)
+I_final = np.reshape(Intensity(0, A), (N, N))
 
-# modulation sequence : modulate with N_mod random SLM phase masks
-for i in range(N_mod):
-    print(f"Modulation step {i+1} of {N_mod}" )
-    # apply SLM filter to initiate the field in the SLM plane
-    Field = Begin(size, wavelength, N)
-    Field = SubIntensity(I0, Field)
-    #If there is only 1 modulation step, do not modulate
-    if N_mod == 1 :
-        phi_m = np.zeros((N,N))
-    else :
-        phi_m=Phi_m[i]
-    phi = phi0_sr*(phi_m+phi0)
-    Phi_init.append(phi)
-    Field = SubPhase(phi, Field)
-    I_init.append(I0)
-    # propagate to the sensor plane
-    Field = Forvard(z, Field)
-    #Field = Lens(f, 0, 0, Field)
-    #Field = Forvard(z, Field)
-    # Retrieve intensity and phase
-    I1 = np.reshape(Intensity(1, Field), (N, N))
-    I_inter.append(I1)
-    # phase retrieval
-    phi3, mask_sr = phase_retrieval(I0, I1, N_gs, False, threshold=mask_threshold)
-    Phi_final.append(phi3-phi_m)
-    Masks.append(mask_sr)
-    # propagate the computed solution to image plane
-    A = Begin(size, wavelength, N)
-    A = SubIntensity(I0, A)
-    A = SubPhase(phi3, A)
-    A = Forvard(z, A)
-    I_final.append(np.reshape(Intensity(0, A), (N, N)))
-Phi_init = np.array(Phi_init)
-Phi_final = np.array(Phi_final)
-I_final = np.array(I_final)
-I_inter = np.array(I_inter)
-Masks = np.array(Masks)
-# Average out the modulations to get final result
-I_inter_m = np.mean(I_inter, axis=0)
-Phi = np.mean(Phi_final, axis=0)
-#define mean signal region for RMS computing
-mask_sr=np.mean(Masks, axis=0)
-A = Begin(size, wavelength, N)
-A = SubIntensity(I0, A)
-A = SubPhase(Phi, A)
-A = Forvard(z, A)
-I=(np.reshape(Intensity(0, A), (N, N)))
-#target intensity
-A = Begin(size, wavelength, N)
-A = SubIntensity(I0, A)
-A = SubPhase(phi0, A)
-A = Forvard(z, A)
-I_target=(np.reshape(Intensity(0, A), (N, N)))
 #Compute RMS
-RMS=(1/2*np.pi)*np.sqrt(np.mean(phi0_sr*(Phi-phi0)**2))
-RMS_1=np.sqrt(np.mean(mask_sr*(I-I_inter_m)**2))
+RMS_1=np.sqrt(np.mean(mask_sr*(I-I_final)**2))
 #compute correlation
 corr=False
 if corr:
@@ -254,8 +207,8 @@ if corr:
     print(f"Done ! It took me {T1} s. Mean correlation is {np.mean(Corr)}")
 # Plot results : intensity and phase
 #min and max intensities in the signal region for proper normalization
-vmin=np.min(mask_sr*I_target)
-vmax=np.max(mask_sr*I_target)
+vmin=np.min(mask_sr*I)
+vmax=np.max(mask_sr*I)
 fig = plt.figure(0)
 if corr:
     ax1 = fig.add_subplot(221)
