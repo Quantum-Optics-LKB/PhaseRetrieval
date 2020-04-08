@@ -15,10 +15,10 @@ size = N*6.4 * um  # size of the SLM window
 wavelength = 532 * nm
 f = 1 * cm  # focal length
 z = 25*mm  # propagation distance
-N_mod = 1  # number of modulated samples for phase retrieval
+N_mod = 10  # number of modulated samples for phase retrieval
 mod_intensity=0.2
 
-def phase_retrieval(I0: np.ndarray, I: np.ndarray, k: int, unwrap: bool, threshold=1e-2,**kwargs):
+def phase_retrieval(I0: np.ndarray, I: np.ndarray, k: int, unwrap: bool, plot:bool = False, threshold:float =1e-2,**kwargs):
     """
     Assumes a 2f-2f setup to retrieve the phase from the intensity at the image plane
     :param I0: Source intensity field
@@ -54,17 +54,18 @@ def phase_retrieval(I0: np.ndarray, I: np.ndarray, k: int, unwrap: bool, thresho
         else :
             mask_sr[j_min:j_max, j_min:j_max] = 1
         mask_nr=np.ones(mask_sr.shape)-mask_sr
-        fig=plt.figure(0)
-        ax1 = fig.add_subplot(121)
-        ax2 = fig.add_subplot(122)
-        ax1.imshow(I, cmap="gray")
-        ax1.set_title("Target intensity")
-        ax2.imshow(mask_sr, cmap="gray")
-        ax2.set_title(f"Signal region (Threshold = {threshold})")
-        scat = ax2.scatter(non_zero[0][R_max],non_zero[1][R_max], color='r')
-        scat.set_label('Threshold point')
-        plt.legend()
-        plt.show()
+        if plot:
+            fig=plt.figure(0)
+            ax1 = fig.add_subplot(121)
+            ax2 = fig.add_subplot(122)
+            ax1.imshow(I, cmap="gray")
+            ax1.set_title("Target intensity")
+            ax2.imshow(mask_sr, cmap="gray")
+            ax2.set_title(f"Signal region (Threshold = {threshold})")
+            scat = ax2.scatter(non_zero[0][R_max],non_zero[1][R_max], color='r')
+            scat.set_label('Threshold point')
+            plt.legend()
+            plt.show()
 
     T0 = time()
     signal_f = Begin(size, wavelength, h)
@@ -135,8 +136,8 @@ for i in range(N_mod):
     # apply SLM filter to initiate the field in the SLM plane
     Field = Begin(size, wavelength, N)
     Field = SubIntensity(I0, Field)
-    phi_m = np.zeros((N,N))
-    #phi_m=Phi_m[i]
+    #phi_m = np.zeros((N,N))
+    phi_m=Phi_m[i]
     phi = phi_m+phi0
     Phi_init.append(phi)
     Field = SubPhase(phi, Field)
@@ -173,6 +174,12 @@ A = SubIntensity(I0, A)
 A = SubPhase(Phi, A)
 A = Forvard(z, A)
 I=(np.reshape(Intensity(0, A), (N, N)))
+#target intensity
+A = Begin(size, wavelength, N)
+A = SubIntensity(I0, A)
+A = SubPhase(phi0, A)
+A = Forvard(z, A)
+I_target=(np.reshape(Intensity(0, A), (N, N)))
 #Compute RMS
 RMS=(1/2*np.pi)*np.sqrt(np.mean(phi0_sr*(Phi-phi0)**2))
 RMS_1=np.sqrt(np.mean(mask_sr*(I-I_inter_m)**2))
@@ -186,8 +193,8 @@ if corr:
     print(f"Done ! It took me {T1} s. Mean correlation is {np.mean(Corr)}")
 # Plot results : intensity and phase
 #min and max intensities in the signal region for proper normalization
-vmin=np.min(mask_sr*I_inter_m)
-vmax=np.max(mask_sr*I_inter_m)
+vmin=np.min(mask_sr*I_target)
+vmax=np.max(mask_sr*I_target)
 fig = plt.figure(0)
 if corr:
     ax1 = fig.add_subplot(221)
@@ -210,8 +217,8 @@ im1=ax1.imshow(Phi, cmap="gray", vmin=-np.pi, vmax=np.pi)
 ax1.set_title(f"Mean reconstructed phase")
 ax1.text(8, 18, f"RMS = {round(RMS, ndigits=3)}", bbox={'facecolor': 'white', 'pad': 3})
 fig.colorbar(im1, cax = cax1)
-im2=ax2.imshow(I_inter_m, cmap="gray", vmin=vmin, vmax=vmax)
-ax2.set_title("Mean propagated intensity")
+im2=ax2.imshow(I_target, cmap="gray", vmin=vmin, vmax=vmax)
+ax2.set_title("Target intensity")
 fig.colorbar(im2, cax = cax2)
 im3=ax3.imshow(I, cmap="gray", vmin=vmin, vmax=vmax)
 ax3.text(8, 18, f"RMS = {round(RMS_1, ndigits=3)}", bbox={'facecolor': 'white', 'pad': 3})
