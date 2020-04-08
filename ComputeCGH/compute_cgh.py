@@ -6,19 +6,16 @@ import numpy as np
 import matplotlib.pyplot as plt
 from LightPipes import *
 from PIL import Image  # for custom phase / intensity masks
-from time import time
+import time
 from scipy.ndimage import interpolation
 from mpl_toolkits.axes_grid1 import make_axes_locatable
+import os
+import configparser
+import ast
+import argparse
+import textwrap
 
-N = 512
-size = N*6.4 * um  # size of the SLM window
-wavelength = 532 * nm
-f = 1 * cm  # focal length
-z = 25*mm  # propagation distance
-N_mod = 1  # number of modulated samples for phase retrieval
-mod_intensity=0.1
-
-def phase_retrieval(I0: np.ndarray, I: np.ndarray, k: int, unwrap: bool, plot:bool = False, threshold:float =1e-2,**kwargs):
+def phase_retrieval(I0: np.ndarray, I: np.ndarray, k: int, unwrap: bool = False, plot:bool = False, threshold:float =1e-2,**kwargs):
     """
     Assumes a 2f-2f setup to retrieve the phase from the intensity at the image plane
     :param I0: Source intensity field
@@ -67,24 +64,24 @@ def phase_retrieval(I0: np.ndarray, I: np.ndarray, k: int, unwrap: bool, plot:bo
             plt.legend()
             plt.show()
 
-    T0 = time()
+    T0 = time.time()
     signal_f = Begin(size, wavelength, h)
     I_f_old=np.zeros(I.shape)
     for i in range(k):
-        T1 = time()
+        T1 = time.time()
         signal_f = SubIntensity(I*mask_sr+I_f_old*mask_nr, signal_f)  # Substitute the measured far field into the field only in the signal region
         signal_s = Forvard(-z, signal_f)  # Propagate back to the near field
         signal_s = SubIntensity(I0, signal_s)  # Substitute the measured near field into the field
         signal_f = Forvard(z, signal_s)  # Propagate to the far field
         I_f_old= Intensity(0, signal_f) # retrieve far field intensity
-        T2 = time() - T1
+        T2 = time.time() - T1
         if i % 10 == 0:
             print(f"{round(100 * (i / k), ndigits=3)} % done ... ({T2} s per step)")
     pm_s = Phase(signal_s)
     if unwrap :
         pm_s = PhaseUnwrap(pm_s)
     pm_s = np.reshape(pm_s, (h, w))
-    T3 = time() - T0
+    T3 = time.time() - T0
     print(f"Elapsed time : {T3} s")
     return pm_s, mask_sr
 
@@ -104,53 +101,104 @@ def modulate(phi: np.ndarray, x: float):
     return phi_m
 
 
+#get current working directory
+cwd_path=os.getcwd()
+#creates a path for the results folder with creation time in the name for convenience in terms of multiple calculations
+results_path=cwd_path+"/generated_cgh_"+str(time.gmtime().tm_hour)+str(time.gmtime().tm_min)+str(time.gmtime().tm_sec)
+
+#argument parser
+parser = argparse.ArgumentParser(prog='ComputeCGH',
+      formatter_class=argparse.RawDescriptionHelpFormatter,
+      epilog=textwrap.dedent('''\
+         Compute hologram yielding target intensity after propagation. Config file format
+         can be found in the README.md at https://github.com/quantumopticslkb/phase_retrieval
+         '''))
+parser.add_argument("I", help="Path to target intensity", type=str)
+parser.add_argument("I0", help="Path to source intensity", type=str)
+parser.add_argument("cfg", help="Path to config file", type=str)
+parser.add_argument("-phi0", help="Path to source phase profile", type=str)
+parser.add_argument("-mask_sr", help="Path to signal region mask", type=str)
+args = parser.parse_args()
+
+#initiate parser that reads the config file
+cfg_path = args.cfg
+conf=configparser.ConfigParser()
+conf.read(cfg_path)
+
+#List of hardcoded parameters to read from a config file
+size = float(conf["params"]["size"])  # size of the SLM window
+wavelength = float(conf["params"]["wavelength"])
+z = float(conf["params"]["z"]) # propagation distance
+N_gs = int(conf["params"]["N_gs"]) # number of GS iterations
+#N_mod = int(conf["params"]["N_mod"])  # number of modulated samples for phase retrieval
+mod_intensity=float(conf["params"]["mod_intensity"]) #modulation intensity
+SLM_levels = int(conf["params"]["SLM_levels"]) #number of SLM levels
+mask_threshold = float(conf['params']['mask_threshold']) #intensity threshold for the signal region
+elements=[] #list of optical elements
+for element in conf["setup"]:
+    elements.append(ast.literal_eval(conf['setup'][element]))
 # initiate custom phase and intensity filters emulating the SLM
-I0 = np.asarray(Image.open("harambe_512.bmp"))[:, :, 0]  # extract only the first channel
+I = np.asarray(Image.open(args.I))
+I0 = np.asarray(Image.open(args.I0))
+h, w = I.shape
+h_0, w_0 = I0.shape
+if h!=h_0:
+    print("Warning : Different target and initial intensity dimensions. Interpolation will be used")
+if args.phi0:
+    phi0 = np.asarray(Image.open(args.phi0))
+else :
+    phi0=np.ones((h_0, w_0))
+if I.ndim==3:
+    print("Target intensity is a multi-level image, taking the first layer")
+    I = np.asarray(Image.open(args.I))[:, :, 0] # extract only the first channel if needed
+if I0.ndim==3:
+    print("Initial intensity is a multi-level image, taking the first layer")
+    I0 = np.asarray(Image.open(args.I0))[:, :, 0]
+
+if h!=w:
+    print("Non square target intensity specified. Target intensity will be extended with zeros to be square.")
+    L=max(h,w) #size of the square
+    tmp=np.zeros((L,L))
+    i=int(L/2-h/2)
+    j=int(L/2+h/2-1)
+    k = int(L / 2 - w / 2)
+    l = int(L / 2 + w / 2 - 1)
+    tmp[i:j,k:l]=I
+    I=tmp
+if h_0!=w_0:
+    print("Non square target intensity specified. Target intensity will be extended with zeros to be square.")
+    L=max(h_0,w_0) #size of the square
+    tmp=np.zeros((L,L))
+    i=int(L/2-h_0/2)
+    j=int(L/2+h_0/2-1)
+    k = int(L / 2 - w_0 / 2)
+    l = int(L / 2 + w_0 / 2 - 1)
+    tmp[i:j,k:l]=I0
+    I0=tmp
+#Some smart thing for padding using a diffraction criterion to estimate beam widening.
+#TODO
+N = I0.shape[0]
 phi0_sr = np.ones((N,N)) #signal region
 phi0_sr[np.where(I0==0)[0], np.where(I0==0)[1]]=0
 phi0_sr[np.where(I0>0)[0], np.where(I0>0)[1]]=1
 phi0_nr=np.ones((N,N))-phi0_sr
 I0=np.ones((N,N))*phi0_sr
-#for i in range(N):
-#    for j in range(N):
-#        I0[i,j]=np.exp(-(1/N**2)*((N/2-i)**2+(N/2-j)**2))
-phi0 = np.asarray(Image.open("calib_512.bmp"))
+#Conversion of the initial phase to rad
+phi0 = ((SLM_levels/2)*np.ones(phi0.shape)-phi0) * (2 * np.pi / SLM_levels)
+phi0 = phi0_sr*phi0
 
-phi0 = (128*np.ones(phi0.shape)-phi0) * (2 * np.pi / 256)# conversion to rads
-phi0 = phi0_sr*phi0 #gating the phase to the signal region.
-Phi_init = []
-I_init = []
-I_inter = []
-Phi_final = []
-Phi_m = []
-I_final = []
-Masks=[]
-#print a warning if uneven nbr of modulation step specified
-if N_mod>1 and N_mod%2!=0:
-    print("Warning ! Odd number of modulation step specified, will take 1 less modulation step to ensure 0 mean modulation")
-    N_mod = 2 * (int(N_mod / 2))
-#define the 0 sum random patterns only if there is more than 1 modulation step
-if N_mod>1:
-    for i in range(int(N_mod/2)):
-        phi_m=modulate(phi0, mod_intensity)
-        Phi_m.append(phi_m)
-        Phi_m.append(-phi_m)
-#define the 0 sum random patterns
-for i in range(int(N_mod/2)):
-    phi_m=modulate(phi0, mod_intensity)
-    Phi_m.append(phi_m)
-    Phi_m.append(-phi_m)
+
 # modulation sequence : modulate with N_mod random SLM phase masks
 for i in range(N_mod):
     print(f"Modulation step {i+1} of {N_mod}" )
     # apply SLM filter to initiate the field in the SLM plane
     Field = Begin(size, wavelength, N)
     Field = SubIntensity(I0, Field)
-    # If there is only 1 modulation step, do not modulate
-    if N_mod == 1:
-        phi_m = np.zeros((N, N))
-    else:
-        phi_m = Phi_m[i]
+    #If there is only 1 modulation step, do not modulate
+    if N_mod == 1 :
+        phi_m = np.zeros((N,N))
+    else :
+        phi_m=Phi_m[i]
     phi = phi0_sr*(phi_m+phi0)
     Phi_init.append(phi)
     Field = SubPhase(phi, Field)
@@ -163,7 +211,7 @@ for i in range(N_mod):
     I1 = np.reshape(Intensity(1, Field), (N, N))
     I_inter.append(I1)
     # phase retrieval
-    phi3, mask_sr = phase_retrieval(I0, I1, 200, False, threshold=5e-2)
+    phi3, mask_sr = phase_retrieval(I0, I1, N_gs, False, threshold=mask_threshold)
     Phi_final.append(phi3-phi_m)
     Masks.append(mask_sr)
     # propagate the computed solution to image plane
@@ -197,7 +245,7 @@ I_target=(np.reshape(Intensity(0, A), (N, N)))
 RMS=(1/2*np.pi)*np.sqrt(np.mean(phi0_sr*(Phi-phi0)**2))
 RMS_1=np.sqrt(np.mean(mask_sr*(I-I_inter_m)**2))
 #compute correlation
-corr=True
+corr=False
 if corr:
     print("Computing phase correlation")
     T0=time()
@@ -241,7 +289,6 @@ if corr:
     im4=ax4.imshow(Corr, cmap="gray")
     ax4.set_title("Correlation between target phase and reconstructed phase")
     fig.colorbar(im4, cax = cax4)
-
 """
 fig1 = plt.figure(1)
 ax1 = fig1.add_subplot(131)
@@ -264,3 +311,4 @@ fig1.colorbar(im2, cax = cax2)
 fig1.colorbar(im3, cax = cax3)
 """
 plt.show()
+
