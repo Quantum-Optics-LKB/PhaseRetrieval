@@ -132,7 +132,7 @@ for i in range(int(N_mod/2)):
     Phi_m.append(-phi_m)
 # modulation sequence : modulate with N_mod random SLM phase masks
 for i in range(N_mod):
-    print(f"Modulation step {i+1} of {N_mod}")
+    print(f"Modulation step {i+1} of {N_mod}" )
     # apply SLM filter to initiate the field in the SLM plane
     Field = Begin(size, wavelength, N)
     Field = SubIntensity(I0, Field)
