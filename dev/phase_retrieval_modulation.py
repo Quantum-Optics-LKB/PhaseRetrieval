@@ -74,7 +74,7 @@ def modulate(phi: np.ndarray):
     phi_m = interpolation.zoom(M, phi.shape[0]/h)
     return phi_m*phi
 #initiate custom phase and intensity filters emulating the SLM
-I0 = np.asarray(Image.open("harambe.jpg"))[:,:0] #extract only the first channel
+I0 = np.asarray(Image.open("harambe.jpg"))[:, :0] #extract only the first channel
 phi0 = np.asarray(Image.open("calib_1024_full.bmp"))
 #phi0 = np.asarray(Image.open("calib.bmp"))
 #print(np.max(phi0)

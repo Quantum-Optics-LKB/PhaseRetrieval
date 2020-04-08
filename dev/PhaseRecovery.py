@@ -17,13 +17,13 @@ z=2*m; #propagation distance from near to far field
 N_iterations=100 #number of iterations
 
 #Read near and far field (at a distance of z=2 m) from disk:
-f=open('Inear.prn','r')
+f=open('Inear.prn', 'r')
 lines=f.readlines()
 f.close()
 data = [line.split() for line in lines]
 Inear = np.asfarray(data)
 
-f=open('Ifar.prn','r')
+f=open('Ifar.prn', 'r')
 lines=f.readlines()
 f.close()
 data = [line.split() for line in lines]
