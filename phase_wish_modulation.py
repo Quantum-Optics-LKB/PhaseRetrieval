@@ -16,7 +16,7 @@ wavelength = 532 * nm
 f = 1 * cm  # focal length
 z = 25*mm  # propagation distance
 N_mod = 10  # number of modulated samples for phase retrieval
-mod_intensity=0.2
+mod_intensity=0.1
 
 def phase_retrieval(I0: np.ndarray, I: np.ndarray, k: int, unwrap: bool, plot:bool = False, threshold:float =1e-2,**kwargs):
     """
@@ -98,7 +98,7 @@ def modulate(phi: np.ndarray, x: float):
     """
     # generate (N/10)x(N/10) random matrices that will then be upscaled through interpolation
     h, w = int(phi.shape[0] / 10), int(phi.shape[1] / 10)
-    M = np.pi*(x * (np.ones((h, w)) - 2*np.random.rand(h, w))) #random matrix between [-x*pi and x*pi]
+    M = np.pi*(x * (np.ones((h, w)) - 2*np.random.rand(h, w, ))) #random matrix between [-x*pi and x*pi]
     phi_m = interpolation.zoom(M, phi.shape[0] / h)
     phi_m = phi_m*np.pi #bring phase between [-pi.pi]
     return phi_m
@@ -138,7 +138,7 @@ for i in range(N_mod):
     Field = SubIntensity(I0, Field)
     #phi_m = np.zeros((N,N))
     phi_m=Phi_m[i]
-    phi = phi_m+phi0
+    phi = phi0_sr*(phi_m+phi0)
     Phi_init.append(phi)
     Field = SubPhase(phi, Field)
     I_init.append(I0)
@@ -151,7 +151,7 @@ for i in range(N_mod):
     I_inter.append(I1)
     # phase retrieval
     phi3, mask_sr = phase_retrieval(I0, I1, 200, False, threshold=5e-2)
-    Phi_final.append(phi3)
+    Phi_final.append(phi3-phi_m)
     Masks.append(mask_sr)
     # propagate the computed solution to image plane
     A = Begin(size, wavelength, N)
