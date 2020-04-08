@@ -32,6 +32,7 @@ def phase_retrieval(I0: np.ndarray, I: np.ndarray, k: int, unwrap: bool, thresho
     :return phi: The calculated phase map using Gerchberg-Saxton algorithm
     """
     h, w = I0.shape
+    mask_sr = np.zeros((h, w))
     #if no masks are specified, the function defines one
     if "mask_sr" not in kwargs:
         #detect outermost non zero target intensity point
@@ -48,7 +49,6 @@ def phase_retrieval(I0: np.ndarray, I: np.ndarray, k: int, unwrap: bool, thresho
         i_min, j_min = int(h/2 - int(abs(non_zero_offset[0][R_max]))), int(w/2 - int(abs(non_zero_offset[1][R_max])))
         delta_i=int(i_max-i_min)
         delta_j=int(j_max-j_min)
-        mask_sr=np.zeros(I.shape)
         if delta_i>delta_j:
             mask_sr[i_min:i_max, i_min:i_max]=1
         else :
@@ -85,7 +85,7 @@ def phase_retrieval(I0: np.ndarray, I: np.ndarray, k: int, unwrap: bool, thresho
     pm_s = np.reshape(pm_s, (h, w))
     T3 = time() - T0
     print(f"Elapsed time : {T3} s")
-    return pm_s
+    return pm_s, mask_sr
 
 
 def modulate(phi: np.ndarray, x: float):
@@ -97,7 +97,7 @@ def modulate(phi: np.ndarray, x: float):
     """
     # generate (N/10)x(N/10) random matrices that will then be upscaled through interpolation
     h, w = int(phi.shape[0] / 10), int(phi.shape[1] / 10)
-    M = x * (np.ones((h, w)) - 2*np.random.rand(h, w)) #random matrix between [-x and x]
+    M = np.pi*(x * (np.ones((h, w)) - 2*np.random.rand(h, w))) #random matrix between [-x*pi and x*pi]
     phi_m = interpolation.zoom(M, phi.shape[0] / h)
     phi_m = phi_m*np.pi #bring phase between [-pi.pi]
     return phi_m
@@ -105,24 +105,25 @@ def modulate(phi: np.ndarray, x: float):
 
 # initiate custom phase and intensity filters emulating the SLM
 I0 = np.asarray(Image.open("harambe_512.bmp"))[:, :, 0]  # extract only the first channel
-mask_sr = np.ones((N,N)) #signal region
-mask_sr[np.where(I0==0)[0], np.where(I0==0)[1]]=0
-mask_sr[np.where(I0>0)[0], np.where(I0>0)[1]]=1
-mask_nr=np.ones((N,N))-mask_sr
-I0=np.ones((N,N))*mask_sr
+phi0_sr = np.ones((N,N)) #signal region
+phi0_sr[np.where(I0==0)[0], np.where(I0==0)[1]]=0
+phi0_sr[np.where(I0>0)[0], np.where(I0>0)[1]]=1
+phi0_nr=np.ones((N,N))-phi0_sr
+I0=np.ones((N,N))*phi0_sr
 #for i in range(N):
 #    for j in range(N):
 #        I0[i,j]=np.exp(-(1/N**2)*((N/2-i)**2+(N/2-j)**2))
 phi0 = np.asarray(Image.open("calib_512.bmp"))
 
 phi0 = (128*np.ones(phi0.shape)-phi0) * (2 * np.pi / 256)# conversion to rads
-phi0 = mask_sr*phi0 #gating the phase to the signal region.
+phi0 = phi0_sr*phi0 #gating the phase to the signal region.
 Phi_init = []
 I_init = []
 I_inter = []
 Phi_final = []
 Phi_m = []
 I_final = []
+Masks=[]
 #define the 0 sum random patterns
 for i in range(int(N_mod/2)):
     phi_m=modulate(phi0, mod_intensity)
@@ -145,11 +146,12 @@ for i in range(N_mod):
     #Field = Lens(f, 0, 0, Field)
     #Field = Forvard(z, Field)
     # Retrieve intensity and phase
-    I2 = np.reshape(Intensity(1, Field), (N, N))
-    I_inter.append(I2)
+    I1 = np.reshape(Intensity(1, Field), (N, N))
+    I_inter.append(I1)
     # phase retrieval
-    phi3 = phase_retrieval(I0, I2, 1000, False, threshold=1e-3)
+    phi3, mask_sr = phase_retrieval(I0, I1, 200, False, threshold=5e-2)
     Phi_final.append(phi3)
+    Masks.append(mask_sr)
     # propagate the computed solution to image plane
     A = Begin(size, wavelength, N)
     A = SubIntensity(I0, A)
@@ -160,36 +162,67 @@ Phi_init = np.array(Phi_init)
 Phi_final = np.array(Phi_final)
 I_final = np.array(I_final)
 I_inter = np.array(I_inter)
+Masks = np.array(Masks)
 # Average out the modulations to get final result
 I_inter_m = np.mean(I_inter, axis=0)
 Phi = np.mean(Phi_final, axis=0)
+#define mean signal region for RMS computing
+mask_sr=np.mean(Masks, axis=0)
 A = Begin(size, wavelength, N)
 A = SubIntensity(I0, A)
 A = SubPhase(Phi, A)
 A = Forvard(z, A)
 I=(np.reshape(Intensity(0, A), (N, N)))
-I_forvard = np.mean(I_inter, axis=0)
 #Compute RMS
-RMS=(1/2*np.pi)*np.sqrt(np.mean((mask_sr*(Phi-phi0))**2))
-RMS_1=np.sqrt(np.mean((I-I_inter_m)**2))
+RMS=(1/2*np.pi)*np.sqrt(np.mean(phi0_sr*(Phi-phi0)**2))
+RMS_1=np.sqrt(np.mean(mask_sr*(I-I_inter_m)**2))
+#compute correlation
+corr=True
+if corr:
+    print("Computing phase correlation")
+    T0=time()
+    Corr=np.corrcoef(phi0_sr*phi0, phi0_sr*Phi)
+    T1=time()-T0
+    print(f"Done ! It took me {T1} s. Mean correlation is {np.mean(Corr)}")
 # Plot results : intensity and phase
+#min and max intensities in the signal region for proper normalization
+vmin=np.min(mask_sr*I_inter_m)
+vmax=np.max(mask_sr*I_inter_m)
 fig = plt.figure(0)
-ax1 = fig.add_subplot(131)
-divider = make_axes_locatable(ax1)
-cax = divider.append_axes('right', size='5%', pad=0.05)
-ax2 = fig.add_subplot(132)
-ax3 = fig.add_subplot(133)
+if corr:
+    ax1 = fig.add_subplot(221)
+    ax2 = fig.add_subplot(222)
+    ax3 = fig.add_subplot(223)
+    ax4 = fig.add_subplot(224)
+    divider4 = make_axes_locatable(ax4)
+    cax4 = divider4.append_axes('right', size='5%', pad=0.05)
+else :
+    ax1 = fig.add_subplot(131)
+    ax2 = fig.add_subplot(132)
+    ax3 = fig.add_subplot(133)
+divider1 = make_axes_locatable(ax1)
+cax1 = divider1.append_axes('right', size='5%', pad=0.05)
+divider2 = make_axes_locatable(ax2)
+cax2 = divider2.append_axes('right', size='5%', pad=0.05)
+divider3 = make_axes_locatable(ax3)
+cax3 = divider3.append_axes('right', size='5%', pad=0.05)
 im1=ax1.imshow(Phi, cmap="gray", vmin=-np.pi, vmax=np.pi)
 ax1.set_title(f"Mean reconstructed phase")
 ax1.text(8, 18, f"RMS = {round(RMS, ndigits=3)}", bbox={'facecolor': 'white', 'pad': 3})
-fig.colorbar(im1, cax = cax)
-im2=ax2.imshow(I_forvard, cmap="gray")
+fig.colorbar(im1, cax = cax1)
+im2=ax2.imshow(I_inter_m, cmap="gray", vmin=vmin, vmax=vmax)
 ax2.set_title("Mean propagated intensity")
-im3=ax3.imshow(I, cmap="gray")
+fig.colorbar(im2, cax = cax2)
+im3=ax3.imshow(I, cmap="gray", vmin=vmin, vmax=vmax)
 ax3.text(8, 18, f"RMS = {round(RMS_1, ndigits=3)}", bbox={'facecolor': 'white', 'pad': 3})
 ax3.set_title("Propagated intensity (with mean recontructed phase)")
+fig.colorbar(im3, cax = cax3)
+if corr:
+    im4=ax4.imshow(Corr, cmap="gray")
+    ax4.set_title("Correlation between target phase and reconstructed phase")
+    fig.colorbar(im4, cax = cax4)
 
-
+"""
 fig1 = plt.figure(1)
 ax1 = fig1.add_subplot(131)
 ax2 = fig1.add_subplot(132)
@@ -209,5 +242,5 @@ ax3.set_title("Mean intensity @z")
 fig1.colorbar(im1, cax = cax1)
 fig1.colorbar(im2, cax = cax2)
 fig1.colorbar(im3, cax = cax3)
-
+"""
 plt.show()
