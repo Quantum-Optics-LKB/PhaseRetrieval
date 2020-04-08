@@ -100,12 +100,6 @@ def modulate(phi: np.ndarray, x: float):
     phi_m = phi_m*np.pi #bring phase between [-pi.pi]
     return phi_m
 
-
-#get current working directory
-cwd_path=os.getcwd()
-#creates a path for the results folder with creation time in the name for convenience in terms of multiple calculations
-results_path=cwd_path+"/generated_cgh_"+str(time.gmtime().tm_hour)+str(time.gmtime().tm_min)+str(time.gmtime().tm_sec)
-
 #argument parser
 parser = argparse.ArgumentParser(prog='ComputeCGH',
       formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -118,7 +112,16 @@ parser.add_argument("I0", help="Path to source intensity", type=str)
 parser.add_argument("cfg", help="Path to config file", type=str)
 parser.add_argument("-phi0", help="Path to source phase profile", type=str)
 parser.add_argument("-mask_sr", help="Path to signal region mask", type=str)
+parser.add_argument("-output", help='Path to results folder', type=str)
 args = parser.parse_args()
+
+#get current working directory
+cwd_path=os.getcwd()
+if args.output :
+    results_path=f"{cwd_path}/{args.output}"
+else:
+#creates a path for the results folder with creation time in the name for convenience in terms of multiple calculation
+    results_path=f"{cwd_path}/generated_cgh_"+str(time.gmtime().tm_hour)+str(time.gmtime().tm_min)+str(time.gmtime().tm_sec)
 
 #initiate parser that reads the config file
 cfg_path = args.cfg
@@ -180,18 +183,19 @@ if h_0!=w_0:
 #approximate width after z : w+2*z*lambda/w (not a lot at optical wavelengths with
 #We take the smallest dimension of the source intensity :
 smallest_dim = (min(h_0,w_0)/max(h_0,w_0))*size
-
 #TODO
 #Conversion of the initial phase to rad
 phi0 = ((SLM_levels/2)*np.ones(phi0.shape)-phi0) * (2 * np.pi / SLM_levels)
-phi0 = phi0_sr*phi0
-
 # phase retrieval
-phi3, mask_sr = phase_retrieval(I0, I, N_gs, False, threshold=mask_threshold)
+phi, mask_sr = phase_retrieval(I0, I, N_gs, False, threshold=mask_threshold)
 # propagate the computed solution to image plane
+N=I0.shape[0]
+phi0_sr = np.ones((N,N)) #signal region
+phi0_sr[np.where(I0==0)[0], np.where(I0==0)[1]]=0
+phi0_sr[np.where(I0>0)[0], np.where(I0>0)[1]]=1
 A = Begin(size, wavelength, N)
 A = SubIntensity(I0, A)
-A = SubPhase(phi3, A)
+A = SubPhase(phi, A)
 A = Forvard(z, A)
 I_final = np.reshape(Intensity(0, A), (N, N))
 
@@ -205,15 +209,31 @@ if corr:
     Corr=np.corrcoef(phi0_sr*phi0, phi0_sr*Phi)
     T1=time()-T0
     print(f"Done ! It took me {T1} s. Mean correlation is {np.mean(Corr)}")
-# Plot results : intensity and phase
-#min and max intensities in the signal region for proper normalization
 vmin=np.min(mask_sr*I)
 vmax=np.max(mask_sr*I)
+#compute RMS
+RMS=(1/2*np.pi)*np.sqrt(np.mean(phi0_sr*(phi-phi0)**2))
+RMS_1=(1/(np.max(I)-np.min(I)))*np.sqrt(np.mean(phi0_sr*(I-I_final)**2))
+#save results
+print(f"{results_path}/I0.png")
+plt.imsave(f"{results_path}/I0.png",I0, vmin=vmin, vmax=vmax, cmap='gray')
+plt.imsave(f"{results_path}/I.png",I, vmin=vmin, vmax=vmax, cmap='gray')
+plt.imsave(f"{results_path}/I_final.png",I_final, vmin=vmin, vmax=vmax, cmap='gray')
+plt.imsave(f"{results_path}/phi0.png",phi0, cmap='gray')
+plt.imsave(f"{results_path}/phi.png",phi, cmap='gray')
+f_rms=open(f"{results_path}/RMS_phase.txt", "w+")
+f_rms.write(f"RMS for the phase is : {RMS}")
+f_rms.close()
+f_rms_1=open(f"{results_path}/RMS_intensity.txt", "w+")
+f_rms_1.write(f"RMS for the intensity is : {RMS_1}")
+f_rms_1.close()
+# Plot results : intensity and phase
+#min and max intensities in the signal region for proper normalization
 fig = plt.figure(0)
 if corr:
-    ax1 = fig.add_subplot(221)
-    ax2 = fig.add_subplot(222)
-    ax3 = fig.add_subplot(223)
+    ax1 = fig.add_subplot(131)
+    ax2 = fig.add_subplot(132)
+    ax3 = fig.add_subplot(133)
     ax4 = fig.add_subplot(224)
     divider4 = make_axes_locatable(ax4)
     cax4 = divider4.append_axes('right', size='5%', pad=0.05)
@@ -227,14 +247,14 @@ divider2 = make_axes_locatable(ax2)
 cax2 = divider2.append_axes('right', size='5%', pad=0.05)
 divider3 = make_axes_locatable(ax3)
 cax3 = divider3.append_axes('right', size='5%', pad=0.05)
-im1=ax1.imshow(Phi, cmap="gray", vmin=-np.pi, vmax=np.pi)
+im1=ax1.imshow(phi, cmap="gray", vmin=-np.pi, vmax=np.pi)
 ax1.set_title(f"Mean reconstructed phase")
 ax1.text(8, 18, f"RMS = {round(RMS, ndigits=3)}", bbox={'facecolor': 'white', 'pad': 3})
 fig.colorbar(im1, cax = cax1)
-im2=ax2.imshow(I_target, cmap="gray", vmin=vmin, vmax=vmax)
+im2=ax2.imshow(I, cmap="gray", vmin=vmin, vmax=vmax)
 ax2.set_title("Target intensity")
 fig.colorbar(im2, cax = cax2)
-im3=ax3.imshow(I, cmap="gray", vmin=vmin, vmax=vmax)
+im3=ax3.imshow(I_final, cmap="gray", vmin=vmin, vmax=vmax)
 ax3.text(8, 18, f"RMS = {round(RMS_1, ndigits=3)}", bbox={'facecolor': 'white', 'pad': 3})
 ax3.set_title("Propagated intensity (with mean recontructed phase)")
 fig.colorbar(im3, cax = cax3)
@@ -242,26 +262,5 @@ if corr:
     im4=ax4.imshow(Corr, cmap="gray")
     ax4.set_title("Correlation between target phase and reconstructed phase")
     fig.colorbar(im4, cax = cax4)
-"""
-fig1 = plt.figure(1)
-ax1 = fig1.add_subplot(131)
-ax2 = fig1.add_subplot(132)
-ax3= fig1.add_subplot(133)
-divider = make_axes_locatable(ax1)
-divider2 = make_axes_locatable(ax2)
-divider3 = make_axes_locatable(ax3)
-cax1 = divider.append_axes('right', size='5%', pad=0.05)
-cax2 = divider2.append_axes('right', size='5%', pad=0.05)
-cax3 = divider3.append_axes('right', size='5%', pad=0.05)
-im1=ax1.imshow((1/2*np.pi)*phi0, cmap="gray")
-ax1.set_title("Initial phase")
-im2=ax2.imshow(I0, cmap="gray")
-ax2.set_title("Initial intensity")
-im3=ax3.imshow(I_inter_m, cmap='gray')
-ax3.set_title("Mean intensity @z")
-fig1.colorbar(im1, cax = cax1)
-fig1.colorbar(im2, cax = cax2)
-fig1.colorbar(im3, cax = cax3)
-"""
 plt.show()
 
