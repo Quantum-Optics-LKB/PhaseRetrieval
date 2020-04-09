@@ -35,11 +35,17 @@ There are 5 optional arguments:
 
 The programm then outputs the results in a folder named "results_{time}" where time is the time at which the code ran. If an `-output` path was specified, the results will be written here. The code outputs `I`, `I0` (as PNG) and the calculated phase map / intensity map (as PNG). It also outputs a file named `rms_intensity.txt` which contains the RMS between the target image and propagated intensity map.
 
-**Example :** The example can be found [here](/examples/harambe)
-Let's say the target intensity and initial phase are the following :
+**Example :** The example can be downloaded [here](/examples/harambe)
+The target intensity and initial phase are the following :
 ![Petitangepartitroptôt](/images/harambe_512.bmp)
 ![calib_phase](/images/calib_512.bmp)
+Now run the command :
+```console
+toto@pcdetoto:~/PathtotheplaceIwant/$ python compute_cgh.py harambe_512.bmp I0.bmp cgh_conf.conf -phi0 calib_512.bmp -output results 
+```
+The program should plot the following image of the auto defined mask for you to check :
 
+The `harambe` folder should now contain a subfolder named `results` with the following images :
 
 
 **CONTRIBUTION**
