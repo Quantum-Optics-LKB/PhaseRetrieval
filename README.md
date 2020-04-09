@@ -1,4 +1,4 @@
-#**GOAL OF THE PROJECT**
+**GOAL OF THE PROJECT**
 
 Following the 2 references below and taking advantage of my history with SLM's, the idea is to build a Michelson interferometer where one of the mirrors is a SLM. Then, we intend to find the optical contact not by tuning the lengths of the arms, but rather by tuning the phase of the SLM : when the exact "negative" phase of the input light is displayed, the intensity cancels completely and we are at the optical contact. Directly cancelling the phase is the brute force approach, and is not very straightforward a priori. The problem is that once the phase map is discretized by the SLM, the problem becomes infinitely degenerate because physically, there is no difference between a pixel at 1 rad, or 1 rad + k*2pi whatever the k (which is obviously not the case for a continuous phase map). 
 
@@ -7,6 +7,12 @@ The approach presented in the 2 references is to use the SLM to modulate the fac
 
 **USAGE**
 
+Start by pulling the repository. For this there are two options :
+*Download the archive directly from GitHub.
+*Use the following commands :
+'''bash
+toto
+'''
 
 **PYTHON LIBS** :  
 
