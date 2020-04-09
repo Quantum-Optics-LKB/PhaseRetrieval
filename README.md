@@ -15,7 +15,22 @@ Clone repository in your desired folder
 ```console
 toto@pcdetoto:~/PathtotheplaceIwant/$ git clone https://github.com/quantumopticslkb/phase_retrieval.git
 ```
-**Put the images you are going to use in the same folder as `compute_cgh.py`**
+The program runs in command line for now. Here is the syntax :
+```console
+toto@pcdetoto:~/PathtotheplaceIwant/$ python compute_cgh.py I IO cfg [-h][-phi0] [-output] [-mask_sr] [-s]
+```
+There are 3 positional arguments :
+* `I` : The target intensity
+* `I0` : The source intensity
+* `cfg` : A config file containing the various physical parameters needed for the propagation. The template for such a file can be found [here](cgh_conf.conf)
+There are 5 optional arguments:
+* `-h` : Print the help string and exit
+* `-phi0` : Path to initial phase of the source, for instance the calibration of the SLM that displays the hologram
+* `-output` : Path to output folder in which the program will save the input images as well as the results
+* `-mask_sr` : Path to a user defined mask
+* `-s` : Silent option. If provided the program does not plot anything and just prompts progress
+
+**The programm understands both absolute and relative paths but it is simplest to put the images you are going to use in the same folder as `compute_cgh.py`**
 
 **CONTRIBUTION**
 
@@ -30,7 +45,7 @@ In order to simulate light propagation, I use this library :
 https://github.com/opticspy/lightpipes 
 
 It has already quite a lot of built in optical elements. 
-Dependencies are in [dependencies](setup.py)
+Dependencies are [here](setup.py)
 
 **REFERENCES** : 
 
