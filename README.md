@@ -23,6 +23,7 @@ There are 3 positional arguments :
 * `I` : The target intensity
 * `I0` : The source intensity
 * `cfg` : A config file containing the various physical parameters needed for the propagation. The template for such a file can be found [here](cgh_conf.conf)
+
 There are 5 optional arguments:
 * `-h` : Print the help string and exit
 * `-phi0` : Path to initial phase of the source, for instance the calibration of the SLM that displays the hologram
@@ -31,6 +32,14 @@ There are 5 optional arguments:
 * `-s` : Silent option. If provided the program does not plot anything and just prompts progress
 
 **The programm understands both absolute and relative paths but it is simplest to put the images you are going to use in the same folder as `compute_cgh.py`**
+
+The programm then outputs the results in a folder named "results_{time}" where time is the time at which the code ran. If an `-output` path was specified, the results will be written here. The code outputs `I`, `I0` (as PNG) and the calculated phase map / intensity map (as PNG). It also outputs a file named `rms_intensity.txt` which contains the RMS between the target image and propagated intensity map.
+
+**Example :** Let's say the target intensity and initial phase are the following :
+![Petitangepartitroptôt](/images/harambe_512.bmp)
+![calib_phase](/images/calib_512.bmp)
+
+
 
 **CONTRIBUTION**
 
