@@ -46,8 +46,12 @@ Now run the command :
 toto@pcdetoto:~/PathtotheplaceIwant/$ python compute_cgh.py harambe_512.bmp I0.bmp cgh_conf.conf -output results 
 ```
 The program should plot the following image of the auto defined mask for you to check :
+![plot_sr](/images/plot_sr.png)
 
-The `harambe` folder should now contain a subfolder named `results` with the following images :
+After closing the plot, it will then run until it plots the final results like so :
+![plot_result](/images/plot_result.png)
+
+The `harambe` folder should now contain a subfolder named `results` with the images saved as PNG.
 
 
 **CONTRIBUTION**
@@ -55,6 +59,7 @@ The `harambe` folder should now contain a subfolder named `results` with the fol
 If you want to contribute, you are more than welcome to do so. Simply **create a new branch with you name on it**. If you do not know how to do it, simply use the GitHub webpage and click on "branches" and type the name of the branch you want to create:
 ![How do I create a new branch ?](/images/create_branch.png)
 **Then do not forget to checkout as this new branch !** :)
+Also feel free to declare issues if you see some, the code is still far from ideal.
 
 **PYTHON LIBS AND DEPENDENCIES** :  
 
