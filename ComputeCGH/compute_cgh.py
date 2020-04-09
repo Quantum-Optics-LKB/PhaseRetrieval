@@ -148,17 +148,28 @@ mask_threshold = float(conf['params']['mask_threshold']) #intensity threshold fo
 elements=[] #list of optical elements
 for element in conf["setup"]:
     elements.append(ast.literal_eval(conf['setup'][element]))
-# initiate custom phase and intensity filters emulating the SLM
+# initiate  intensities, phase and mask
 I = np.asarray(Image.open(args.I))
 I0 = np.asarray(Image.open(args.I0))
 if I.ndim==3:
     if not(args.s):
         print("Target intensity is a multi-level image, taking the first layer")
-    I = np.asarray(Image.open(args.I))[:, :, 0] # extract only the first channel if needed
+    I = I[:, :, 0] # extract only the first channel if needed
 if I0.ndim==3:
     if not (args.s):
         print("Initial intensity is a multi-level image, taking the first layer")
-    I0 = np.asarray(Image.open(args.I0))[:, :, 0]
+    I0 = I0[:, :, 0]
+if args.mask_sr:
+    mask_sr = np.asarray(Image.open(args.mask_sr))
+    if mask_sr.ndim == 3:
+        if not (args.s):
+            print("Signal region is a multi-level image, taking the first layer")
+        mask_sr = mask_sr[:, :, 0]
+#check if signal region size matches the target intensity
+if args.mask_sr:
+    if mask_sr.shape!=I.shape:
+        print("Error : Signal region size does not match target intensity size !")
+        raise
 h, w = I.shape
 h_0, w_0 = I0.shape
 # if the initial phase was supplied, assign it. If not flat wavefront.
@@ -200,9 +211,15 @@ smallest_dim = (min(h_0,w_0)/max(h_0,w_0))*size
 phi0 = ((SLM_levels/2)*np.ones(phi0.shape)-phi0) * (2 * np.pi / SLM_levels)
 # phase retrieval
 if not(args.s):
-    phi, mask_sr = phase_retrieval(I0, I, N_gs, False, threshold=mask_threshold)
+    if args.mask_sr:
+        phi, mask_sr = phase_retrieval(I0, I, N_gs, False, threshold=mask_threshold, mask_sr=mask_sr)
+    else :
+        phi, mask_sr = phase_retrieval(I0, I, N_gs, False, threshold=mask_threshold)
 elif args.s :
-    phi, mask_sr = phase_retrieval(I0, I, N_gs, False, plot=False, threshold=mask_threshold)
+    if args.mask_sr:
+        phi, mask_sr = phase_retrieval(I0, I, N_gs, False, plot=False, threshold=mask_threshold, mask_sr=mask_sr)
+    else :
+        phi, mask_sr = phase_retrieval(I0, I, N_gs, False, plot=False, threshold=mask_threshold)
 # propagate the computed solution to image plane
 N=I0.shape[0]
 phi0_sr = np.ones((N,N)) #signal region
