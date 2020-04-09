@@ -26,12 +26,18 @@ def phase_retrieval(I0: np.ndarray, I: np.ndarray, k: int, unwrap: bool = False,
     :param threshold : Threshold for automatic mask float in [0,1] default is 1e-2
     :param **mask_sr : Signal region  np.ndarray
     :param **mask_nr : Noise region  np.ndarray
+    :param **phi0 : Initial phase of the source np.ndarray
     :return phi: The calculated phase map using Gerchberg-Saxton algorithm
     """
     h, w = I0.shape
+    #initiate initial phase
+    if kwargs["phi0"]:
+        phi0=kwargs["phi0"]
+    else :
+        phi0=np.zeros((h,w))
     mask_sr = np.zeros((h, w))
     #if no masks are specified, the function defines one
-    if "mask_sr" not in kwargs:
+    if not(kwargs["mask_sr"]):
         #detect outermost non zero target intensity point
         non_zero=np.array(np.where(I>threshold))
         non_zero_offset=np.zeros(non_zero.shape)
@@ -65,15 +71,18 @@ def phase_retrieval(I0: np.ndarray, I: np.ndarray, k: int, unwrap: bool = False,
             plt.show()
 
     T0 = time.time()
-    signal_f = Begin(size, wavelength, h)
-    I_f_old=np.zeros(I.shape)
+    #initiate field in the SLM plane
+    signal_s = Begin(size, wavelength, h)
+    signal_s = SubIntensity(I0, signal_s)
+    signal_s = SubPhase(phi0, signal_s)
     for i in range(k):
         T1 = time.time()
-        signal_f = SubIntensity(I*mask_sr+I_f_old*mask_nr, signal_f)  # Substitute the measured far field into the field only in the signal region
-        signal_s = Forvard(-z, signal_f)  # Propagate back to the near field
-        signal_s = SubIntensity(I0, signal_s)  # Substitute the measured near field into the field
         signal_f = Forvard(z, signal_s)  # Propagate to the far field
         I_f_old= Intensity(0, signal_f) # retrieve far field intensity
+        signal_f = SubIntensity(I * mask_sr + I_f_old * mask_nr,
+                                signal_f)  # Substitute the measured far field into the field only in the signal region
+        signal_s = Forvard(-z, signal_f)  # Propagate back to the near field
+        signal_s = SubIntensity(I0, signal_s)  # Substitute the measured near field into the field
         T2 = time.time() - T1
         if i % 10 == 0:
             print(f"{round(100 * (i / k), ndigits=3)} % done ... ({T2} s per step)")
@@ -159,24 +168,33 @@ if I0.ndim==3:
     if not (args.s):
         print("Initial intensity is a multi-level image, taking the first layer")
     I0 = I0[:, :, 0]
+# if the initial phase was supplied, assign it. If not flat wavefront.
+if args.phi0:
+    phi0 = np.asarray(Image.open(args.phi0))
+    if phi0.ndim == 3:
+        if not (args.s):
+            print("Initial phase is a multi-level image, taking the first layer")
+        phi0 = phi0[:, :, 0]
+    # check if initial phase size matches the source intensity
+    if phi0.shape!=I0.shape:
+        print("Error : Initial phase size does not match source intensity size !")
+        raise
+else :
+    phi0=np.zeros((h_0, w_0))
+
 if args.mask_sr:
     mask_sr = np.asarray(Image.open(args.mask_sr))
     if mask_sr.ndim == 3:
         if not (args.s):
             print("Signal region is a multi-level image, taking the first layer")
         mask_sr = mask_sr[:, :, 0]
-#check if signal region size matches the target intensity
-if args.mask_sr:
-    if mask_sr.shape!=I.shape:
+        # check if signal region size matches the target intensity
+    if mask_sr.shape != I.shape:
         print("Error : Signal region size does not match target intensity size !")
         raise
 h, w = I.shape
 h_0, w_0 = I0.shape
-# if the initial phase was supplied, assign it. If not flat wavefront.
-if args.phi0:
-    phi0 = np.asarray(Image.open(args.phi0))
-else :
-    phi0=np.zeros((h_0, w_0))
+
 if h!=h_0 and not(args.s):
     print("Warning : Different target and initial intensity dimensions. Interpolation will be used")
 if h!=w:
