@@ -11,8 +11,9 @@ Start by pulling the repository. For this there are two options :
 * Download the archive directly from GitHub.
 
 * Use the following commands :
+Clone repository in your desired folder
 ```shell
-git clone https://
+toto@pcdetoto:~/Documents/quantum_optics_repo/$ git clone https://github.com/quantumopticslkb/phase_retrieval.git
 ```
 
 **PYTHON LIBS** :  
