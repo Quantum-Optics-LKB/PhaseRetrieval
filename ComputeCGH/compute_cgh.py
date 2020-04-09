@@ -17,7 +17,7 @@ import textwrap
 
 def phase_retrieval(I0: np.ndarray, I: np.ndarray, k: int, unwrap: bool = False, plot:bool = False, threshold:float =1e-2,**kwargs):
     """
-    Assumes a 2f-2f setup to retrieve the phase from the intensity at the image plane
+    Assumes the propagation in the provided setup to retrieve the phase from the intensity at the image plane
     :param I0: Source intensity field
     :param I: Intensity field from which to retrieve the phase
     :param f: Focal length of the lens conjugating the two planes
