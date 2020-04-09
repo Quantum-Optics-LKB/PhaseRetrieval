@@ -146,7 +146,7 @@ def modulate(phi: np.ndarray, x: float):
     return phi_m
 
 #argument parser
-parser = argparse.ArgumentParser(prog='ComputeCGH',
+parser = argparse.ArgumentParser(prog='compute_cgh',
       formatter_class=argparse.RawDescriptionHelpFormatter,
       epilog=textwrap.dedent('''\
          Compute hologram yielding target intensity after propagation. Config file format
