@@ -15,6 +15,9 @@ Clone repository in your desired folder
 ```console
 toto@pcdetoto:~/Documents/quantum_optics_repo/$ git clone https://github.com/quantumopticslkb/phase_retrieval.git
 ```
+**CONTRIBUTION**
+
+If you want to contribute, you are more than welcome to do so. Simply *create a new branch with you name on it*. If you do not know how to do it, simply use the GitHub webpage and click on "branches":
 
 **PYTHON LIBS** :  
 
