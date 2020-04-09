@@ -29,7 +29,8 @@ def phase_retrieval(I0: np.ndarray, I: np.ndarray, k: int, unwrap: bool = False,
     :param **phi0 : Initial phase of the source np.ndarray
     :return phi: The calculated phase map using Gerchberg-Saxton algorithm
     """
-    h, w = I0.shape
+    h_0, w_0 = I0.shape
+    h, w = I.shape
     #initiate initial phase
     if "phi0" in kwargs:
         phi0=kwargs["phi0"]
@@ -64,7 +65,6 @@ def phase_retrieval(I0: np.ndarray, I: np.ndarray, k: int, unwrap: bool = False,
             mask_sr[i_min:i_max, i_min:i_max]=1
         else :
             mask_sr[j_min:j_max, j_min:j_max] = 1
-        mask_nr=np.ones(mask_sr.shape)-mask_sr
         if plot:
             fig=plt.figure(0)
             ax1 = fig.add_subplot(121)
@@ -77,7 +77,9 @@ def phase_retrieval(I0: np.ndarray, I: np.ndarray, k: int, unwrap: bool = False,
             scat.set_label('Threshold point')
             plt.legend()
             plt.show()
-
+    else :
+        mask_sr=kwargs["mask_sr"]
+    mask_nr = np.ones(mask_sr.shape) - mask_sr
     T0 = time.time()
     #initiate field in the SLM plane
     signal_s = Begin(size, wavelength, h)
@@ -91,6 +93,8 @@ def phase_retrieval(I0: np.ndarray, I: np.ndarray, k: int, unwrap: bool = False,
                                 signal_f)  # Substitute the measured far field into the field only in the signal region
         signal_s = Forvard(-z, signal_f)  # Propagate back to the near field
         signal_s = SubIntensity(I0, signal_s)  # Substitute the measured near field into the field
+        pm_s = np.reshape(Phase(signal_s), (h_0,w_0))
+        #signal_s = SubPhase(phi0+pm_s, signal_s) #add the source field phase
         T2 = time.time() - T1
         if i % 10 == 0:
             print(f"{round(100 * (i / k), ndigits=3)} % done ... ({T2} s per step)")
@@ -252,7 +256,7 @@ phi0_sr[np.where(I0==0)[0], np.where(I0==0)[1]]=0
 phi0_sr[np.where(I0>0)[0], np.where(I0>0)[1]]=1
 A = Begin(size, wavelength, N)
 A = SubIntensity(I0, A)
-A = SubPhase(phi, A)
+A = SubPhase(phi+phi0, A) #add source beam phase
 A = Forvard(z, A)
 I_final = np.reshape(Intensity(0, A), (N, N))
 
