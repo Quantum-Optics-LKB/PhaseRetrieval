@@ -12,7 +12,7 @@ Start by pulling the repository. For this there are two options :
 
 * Use the following commands :
 Clone repository in your desired folder
-```shell
+```console
 toto@pcdetoto:~/Documents/quantum_optics_repo/$ git clone https://github.com/quantumopticslkb/phase_retrieval.git
 ```
 
