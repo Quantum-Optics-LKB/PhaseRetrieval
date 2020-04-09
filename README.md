@@ -8,8 +8,9 @@ The approach presented in the 2 references is to use the SLM to modulate the fac
 **USAGE**
 
 Start by pulling the repository. For this there are two options :
-*Download the archive directly from GitHub.
-*Use the following commands :
+* Download the archive directly from GitHub.
+
+* Use the following commands :
 ```shell
 git clone https://
 ```
