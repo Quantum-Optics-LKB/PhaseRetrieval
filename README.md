@@ -43,7 +43,7 @@ The target intensity and initial phase are the following :
 
 Now run the command :
 ```console
-toto@pcdetoto:~/PathtotheplaceIwant/$ python compute_cgh.py harambe_512.bmp I0.bmp cgh_conf.conf -phi0 calib_512.bmp -output results 
+toto@pcdetoto:~/PathtotheplaceIwant/$ python compute_cgh.py harambe_512.bmp I0.bmp cgh_conf.conf -output results 
 ```
 The program should plot the following image of the auto defined mask for you to check :
 
