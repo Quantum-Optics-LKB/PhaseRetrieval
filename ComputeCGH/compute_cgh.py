@@ -15,7 +15,7 @@ import ast
 import argparse
 import textwrap
 
-def phase_retrieval(I0: np.ndarray, I: np.ndarray, k: int, unwrap: bool = False, plot:bool = False, threshold:float =1e-2,**kwargs):
+def phase_retrieval(I0: np.ndarray, I: np.ndarray, k: int, unwrap: bool = False, plot:bool = True, threshold:float =1e-2,**kwargs):
     """
     Assumes the propagation in the provided setup to retrieve the phase from the intensity at the image plane
     :param I0: Source intensity field
@@ -118,10 +118,17 @@ args = parser.parse_args()
 #get current working directory
 cwd_path=os.getcwd()
 if args.output :
-    results_path=f"{cwd_path}/{args.output}"
+    results_path=f"{args.output}"
 else:
 #creates a path for the results folder with creation time in the name for convenience in terms of multiple calculation
-    results_path=f"{cwd_path}/generated_cgh_"+str(time.gmtime().tm_hour)+str(time.gmtime().tm_min)+str(time.gmtime().tm_sec)
+    results_path=f"generated_cgh_"+str(time.gmtime().tm_hour)+str(time.gmtime().tm_min)+str(time.gmtime().tm_sec)
+#if the folder doesn't already exist, create it
+if not(os.path.isdir(f"{results_path}")):
+    try:
+        os.mkdir(f"{cwd_path}/{results_path}")
+    except OSError:
+        print("I did not manage to create the specified results folder, maybe there is an error in the specified path ?")
+        raise
 
 #initiate parser that reads the config file
 cfg_path = args.cfg
@@ -215,7 +222,7 @@ vmax=np.max(mask_sr*I)
 RMS=(1/2*np.pi)*np.sqrt(np.mean(phi0_sr*(phi-phi0)**2))
 RMS_1=(1/(np.max(I)-np.min(I)))*np.sqrt(np.mean(phi0_sr*(I-I_final)**2))
 #save results
-print(f"{results_path}/I0.png")
+print(f"Folder to save the images /{results_path}/I0.png")
 plt.imsave(f"{results_path}/I0.png",I0, vmin=vmin, vmax=vmax, cmap='gray')
 plt.imsave(f"{results_path}/I.png",I, vmin=vmin, vmax=vmax, cmap='gray')
 plt.imsave(f"{results_path}/I_final.png",I_final, vmin=vmin, vmax=vmax, cmap='gray')
