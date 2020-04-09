@@ -22,7 +22,7 @@ toto@pcdetoto:~/PathtotheplaceIwant/$ python compute_cgh.py I IO cfg [-h][-phi0]
 There are 3 positional arguments :
 * `I` : The target intensity
 * `I0` : The source intensity
-* `cfg` : A config file containing the various physical parameters needed for the propagation. The template for such a file can be found [here](cgh_conf.conf)
+* `cfg` : A config file containing the various physical parameters needed for the propagation. The template for such a file can be found [here](ComputeCGH/cgh_conf.conf)
 
 There are 5 optional arguments:
 * `-h` : Print the help string and exit
@@ -35,7 +35,8 @@ There are 5 optional arguments:
 
 The programm then outputs the results in a folder named "results_{time}" where time is the time at which the code ran. If an `-output` path was specified, the results will be written here. The code outputs `I`, `I0` (as PNG) and the calculated phase map / intensity map (as PNG). It also outputs a file named `rms_intensity.txt` which contains the RMS between the target image and propagated intensity map.
 
-**Example :** Let's say the target intensity and initial phase are the following :
+**Example :** The example can be found [here](/ComputeCGH/examples/harambe)
+Let's say the target intensity and initial phase are the following :
 ![Petitangepartitroptôt](/images/harambe_512.bmp)
 ![calib_phase](/images/calib_512.bmp)
 
