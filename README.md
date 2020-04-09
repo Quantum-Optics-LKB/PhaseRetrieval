@@ -9,7 +9,7 @@ The approach presented in the 2 references is to use the SLM to modulate the fac
 
 Start by pulling the repository. For this there are two options :
 * Download the archive directly from GitHub.
-
+![Which button to download the repository ?](/images/download_repo.png)
 * Use the following commands :
 Clone repository in your desired folder
 ```console
