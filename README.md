@@ -15,6 +15,7 @@ Clone repository in your desired folder
 ```console
 toto@pcdetoto:~/PathtotheplaceIwant/$ git clone https://github.com/quantumopticslkb/phase_retrieval.git
 ```
+You will need to enter the login and the password of the GitHub account.
 The program runs in command line for now. Here is the syntax :
 ```console
 toto@pcdetoto:~/PathtotheplaceIwant/$ python compute_cgh.py I IO cfg [-h][-phi0] [-output] [-mask_sr] [-s]
