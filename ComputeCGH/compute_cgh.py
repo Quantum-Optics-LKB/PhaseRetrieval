@@ -29,17 +29,29 @@ def phase_retrieval(I0: np.ndarray, I: np.ndarray, k: int, unwrap: bool = False,
     :param **phi0 : Initial phase of the source np.ndarray
     :return phi: The calculated phase map using Gerchberg-Saxton algorithm
     """
+    #Normalize intensity
+    I0 = I0/np.max(I0)
     h, w = I0.shape
     #initiate initial phase
-    if kwargs["phi0"]:
+    if "phi0" in kwargs:
         phi0=kwargs["phi0"]
     else :
         phi0=np.zeros((h,w))
-    mask_sr = np.zeros((h, w))
-    #if no masks are specified, the function defines one
-    if not(kwargs["mask_sr"]):
+    #if no masks are specified, the function defines one in the first step by propagating the initial phase and source
+    # intensity to the image plane
+
+    if "mask_sr" not in kwargs:
+        mask_sr = np.zeros((h, w))
+        # initiate field in the SLM plane
+        signal_s = Begin(size, wavelength, h)
+        signal_s = SubIntensity(I0, signal_s)
+        signal_s = SubPhase(phi0, signal_s)
+        # propagate to image plane
+        signal_f = Forvard(z, signal_s)
+        # Retrieve propagated intensity
+        I_f=np.reshape(Intensity(1, signal_f), (h,w))
         #detect outermost non zero target intensity point
-        non_zero=np.array(np.where(I>threshold))
+        non_zero=np.array(np.where(I_f>threshold))
         non_zero_offset=np.zeros(non_zero.shape)
         #offset relative to center
         non_zero_offset[0]=non_zero[0]-(h/2)*np.ones(len(non_zero[0]))
@@ -70,22 +82,38 @@ def phase_retrieval(I0: np.ndarray, I: np.ndarray, k: int, unwrap: bool = False,
             plt.legend()
             plt.show()
 
-    T0 = time.time()
-    #initiate field in the SLM plane
-    signal_s = Begin(size, wavelength, h)
-    signal_s = SubIntensity(I0, signal_s)
-    signal_s = SubPhase(phi0, signal_s)
-    for i in range(k):
-        T1 = time.time()
-        signal_f = Forvard(z, signal_s)  # Propagate to the far field
-        I_f_old= Intensity(0, signal_f) # retrieve far field intensity
-        signal_f = SubIntensity(I * mask_sr + I_f_old * mask_nr,
-                                signal_f)  # Substitute the measured far field into the field only in the signal region
-        signal_s = Forvard(-z, signal_f)  # Propagate back to the near field
-        signal_s = SubIntensity(I0, signal_s)  # Substitute the measured near field into the field
-        T2 = time.time() - T1
-        if i % 10 == 0:
-            print(f"{round(100 * (i / k), ndigits=3)} % done ... ({T2} s per step)")
+        T0 = time.time()
+        #do the rest of the iterations
+        for i in range(k-1):
+            T1 = time.time()
+            signal_f = Forvard(z, signal_s)  # Propagate to the far field
+            I_f_old= Intensity(0, signal_f) # retrieve far field intensity
+            signal_f = SubIntensity(I * mask_sr + I_f_old * mask_nr,
+                                    signal_f)  # Substitute the measured far field into the field only in the signal region
+            signal_s = Forvard(-z, signal_f)  # Propagate back to the near field
+            signal_s = SubIntensity(I0, signal_s)  # Substitute the measured near field into the field
+            T2 = time.time() - T1
+            if i % 10 == 0:
+                print(f"{round(100 * (i / k), ndigits=3)} % done ... ({T2} s per step)")
+
+    else :
+        #If a mask is already supplied, just do the regular loop
+        mask_sr = kwargs["mask_sr"]
+        # initiate field in the SLM plane
+        signal_s = Begin(size, wavelength, h)
+        signal_s = SubIntensity(I0, signal_s)
+        signal_s = SubPhase(phi0, signal_s)
+        for i in range(k):
+            T1 = time.time()
+            signal_f = Forvard(z, signal_s)  # Propagate to the far field
+            I_f_old= Intensity(0, signal_f) # retrieve far field intensity
+            signal_f = SubIntensity(I * mask_sr + I_f_old * mask_nr,
+                                    signal_f)  # Substitute the measured far field into the field only in the signal region
+            signal_s = Forvard(-z, signal_f)  # Propagate back to the near field
+            signal_s = SubIntensity(I0, signal_s)  # Substitute the measured near field into the field
+            T2 = time.time() - T1
+            if i % 10 == 0:
+                print(f"{round(100 * (i / k), ndigits=3)} % done ... ({T2} s per step)")
     pm_s = Phase(signal_s)
     if unwrap :
         pm_s = PhaseUnwrap(pm_s)
@@ -230,14 +258,14 @@ phi0 = ((SLM_levels/2)*np.ones(phi0.shape)-phi0) * (2 * np.pi / SLM_levels)
 # phase retrieval
 if not(args.s):
     if args.mask_sr:
-        phi, mask_sr = phase_retrieval(I0, I, N_gs, False, threshold=mask_threshold, mask_sr=mask_sr)
+        phi, mask_sr = phase_retrieval(I0, I, N_gs, False, threshold=mask_threshold, mask_sr=mask_sr, phi0=phi0)
     else :
-        phi, mask_sr = phase_retrieval(I0, I, N_gs, False, threshold=mask_threshold)
+        phi, mask_sr = phase_retrieval(I0, I, N_gs, False, threshold=mask_threshold, phi0=phi0)
 elif args.s :
     if args.mask_sr:
-        phi, mask_sr = phase_retrieval(I0, I, N_gs, False, plot=False, threshold=mask_threshold, mask_sr=mask_sr)
+        phi, mask_sr = phase_retrieval(I0, I, N_gs, False, plot=False, threshold=mask_threshold, mask_sr=mask_sr, phi0=phi0)
     else :
-        phi, mask_sr = phase_retrieval(I0, I, N_gs, False, plot=False, threshold=mask_threshold)
+        phi, mask_sr = phase_retrieval(I0, I, N_gs, False, plot=False, threshold=mask_threshold, phi0=phi0)
 # propagate the computed solution to image plane
 N=I0.shape[0]
 phi0_sr = np.ones((N,N)) #signal region
