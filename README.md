@@ -17,7 +17,9 @@ toto@pcdetoto:~/Documents/quantum_optics_repo/$ git clone https://github.com/qua
 ```
 **CONTRIBUTION**
 
-If you want to contribute, you are more than welcome to do so. Simply **create a new branch with you name on it**. If you do not know how to do it, simply use the GitHub webpage and click on "branches":
+If you want to contribute, you are more than welcome to do so. Simply **create a new branch with you name on it**. If you do not know how to do it, simply use the GitHub webpage and click on "branches" and type the name of the branch you want to create:
+![How do I create a new branch ?](/images/create_branch.png)
+**Then do not forget to checkout as this new branch !** :)
 
 **PYTHON LIBS** :  
 
