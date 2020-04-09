@@ -15,7 +15,8 @@ import ast
 import argparse
 import textwrap
 
-def phase_retrieval(I0: np.ndarray, I: np.ndarray, k: int, unwrap: bool = False, plot:bool = True, threshold:float =1e-2,**kwargs):
+def phase_retrieval(I0: np.ndarray, size_0: float, I: np.ndarray, size: float, k: int, unwrap: bool = False,
+                    plot:bool = True, threshold:float =1e-2,**kwargs):
     """
     Assumes the propagation in the provided setup to retrieve the phase from the intensity at the image plane
     :param I0: Source intensity field
@@ -31,7 +32,8 @@ def phase_retrieval(I0: np.ndarray, I: np.ndarray, k: int, unwrap: bool = False,
     """
     #Normalize intensity
     I0 = I0/np.max(I0)
-    h, w = I0.shape
+    h_0, w_0 = I0.shape
+    h, w = I.shape
     #initiate initial phase
     if "phi0" in kwargs:
         phi0=kwargs["phi0"]
@@ -43,11 +45,13 @@ def phase_retrieval(I0: np.ndarray, I: np.ndarray, k: int, unwrap: bool = False,
     if "mask_sr" not in kwargs:
         mask_sr = np.zeros((h, w))
         # initiate field in the SLM plane
-        signal_s = Begin(size, wavelength, h)
+        signal_s = Begin(size_0, wavelength, h_0)
         signal_s = SubIntensity(I0, signal_s)
         signal_s = SubPhase(phi0, signal_s)
         # propagate to image plane
         signal_f = Forvard(z, signal_s)
+        #interpolate to new size
+        signal_f = Interpol(size, h, 0, 0, 0, 1, signal_f)
         # Retrieve propagated intensity
         I_f=np.reshape(Intensity(1, signal_f), (h,w))
         #detect outermost non zero target intensity point
@@ -87,10 +91,12 @@ def phase_retrieval(I0: np.ndarray, I: np.ndarray, k: int, unwrap: bool = False,
         for i in range(k-1):
             T1 = time.time()
             signal_f = Forvard(z, signal_s)  # Propagate to the far field
+            signal_f = Interpol(size, h, 0, 0, 0, 1, signal_f) #interpolate
             I_f_old= Intensity(0, signal_f) # retrieve far field intensity
             signal_f = SubIntensity(I * mask_sr + I_f_old * mask_nr,
                                     signal_f)  # Substitute the measured far field into the field only in the signal region
             signal_s = Forvard(-z, signal_f)  # Propagate back to the near field
+            signal_s = Interpol(size_0, h_0, 0, 0, 0, 1, signal_s) #interpolate
             signal_s = SubIntensity(I0, signal_s)  # Substitute the measured near field into the field
             T2 = time.time() - T1
             if i % 10 == 0:
@@ -106,10 +112,12 @@ def phase_retrieval(I0: np.ndarray, I: np.ndarray, k: int, unwrap: bool = False,
         for i in range(k):
             T1 = time.time()
             signal_f = Forvard(z, signal_s)  # Propagate to the far field
+            signal_f = Interpol(size, h, 0, 0, 0, 1, signal_f) #interpolate
             I_f_old= Intensity(0, signal_f) # retrieve far field intensity
             signal_f = SubIntensity(I * mask_sr + I_f_old * mask_nr,
                                     signal_f)  # Substitute the measured far field into the field only in the signal region
             signal_s = Forvard(-z, signal_f)  # Propagate back to the near field
+            signal_s = Interpol(size_0, h_0, 0, 0, 0, 1, signal_s)
             signal_s = SubIntensity(I0, signal_s)  # Substitute the measured near field into the field
             T2 = time.time() - T1
             if i % 10 == 0:
@@ -174,7 +182,8 @@ conf=configparser.ConfigParser()
 conf.read(cfg_path)
 
 #List of hardcoded parameters to read from a config file
-size = float(conf["params"]["size"])  # size of the SLM window
+size_SLM = float(conf["params"]["size_SLM"])  # size of the SLM window
+size = float(conf["params"]["size"])  # size of the image plane
 wavelength = float(conf["params"]["wavelength"])
 z = float(conf["params"]["z"]) # propagation distance
 N_gs = int(conf["params"]["N_gs"]) # number of GS iterations
@@ -258,14 +267,14 @@ phi0 = ((SLM_levels/2)*np.ones(phi0.shape)-phi0) * (2 * np.pi / SLM_levels)
 # phase retrieval
 if not(args.s):
     if args.mask_sr:
-        phi, mask_sr = phase_retrieval(I0, I, N_gs, False, threshold=mask_threshold, mask_sr=mask_sr, phi0=phi0)
+        phi, mask_sr = phase_retrieval(I0, size_SLM, I, size, N_gs, False, threshold=mask_threshold, mask_sr=mask_sr, phi0=phi0)
     else :
-        phi, mask_sr = phase_retrieval(I0, I, N_gs, False, threshold=mask_threshold, phi0=phi0)
+        phi, mask_sr = phase_retrieval(I0, size_SLM, I, size, N_gs, False, threshold=mask_threshold, phi0=phi0)
 elif args.s :
     if args.mask_sr:
-        phi, mask_sr = phase_retrieval(I0, I, N_gs, False, plot=False, threshold=mask_threshold, mask_sr=mask_sr, phi0=phi0)
+        phi, mask_sr = phase_retrieval(I0, size_SLM, I, size, N_gs, False, plot=False, threshold=mask_threshold, mask_sr=mask_sr, phi0=phi0)
     else :
-        phi, mask_sr = phase_retrieval(I0, I, N_gs, False, plot=False, threshold=mask_threshold, phi0=phi0)
+        phi, mask_sr = phase_retrieval(I0, size_SLM, I, size, N_gs, False, plot=False, threshold=mask_threshold, phi0=phi0)
 # propagate the computed solution to image plane
 N=I0.shape[0]
 phi0_sr = np.ones((N,N)) #signal region
