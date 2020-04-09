@@ -13,21 +13,24 @@ Start by pulling the repository. For this there are two options :
 * Use the following commands :
 Clone repository in your desired folder
 ```console
-toto@pcdetoto:~/Documents/quantum_optics_repo/$ git clone https://github.com/quantumopticslkb/phase_retrieval.git
+toto@pcdetoto:~/PathtotheplaceIwant/$ git clone https://github.com/quantumopticslkb/phase_retrieval.git
 ```
+**Put the images you are going to use in the same folder as `compute_cgh.py`**
+
 **CONTRIBUTION**
 
 If you want to contribute, you are more than welcome to do so. Simply **create a new branch with you name on it**. If you do not know how to do it, simply use the GitHub webpage and click on "branches" and type the name of the branch you want to create:
 ![How do I create a new branch ?](/images/create_branch.png)
 **Then do not forget to checkout as this new branch !** :)
 
-**PYTHON LIBS** :  
+**PYTHON LIBS AND DEPENDENCIES** :  
 
 In order to simulate light propagation, I use this library : 
 
 https://github.com/opticspy/lightpipes 
 
 It has already quite a lot of built in optical elements. 
+Dependencies are in [dependencies](setup.py)
 
 **REFERENCES** : 
 
