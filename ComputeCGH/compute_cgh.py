@@ -113,6 +113,7 @@ parser.add_argument("cfg", help="Path to config file", type=str)
 parser.add_argument("-phi0", help="Path to source phase profile", type=str)
 parser.add_argument("-mask_sr", help="Path to signal region mask", type=str)
 parser.add_argument("-output", help='Path to results folder', type=str)
+parser.add_argument("-s", help='Program runs silent without plots', action='store_true')
 args = parser.parse_args()
 
 #get current working directory
@@ -151,10 +152,12 @@ for element in conf["setup"]:
 I = np.asarray(Image.open(args.I))
 I0 = np.asarray(Image.open(args.I0))
 if I.ndim==3:
-    print("Target intensity is a multi-level image, taking the first layer")
+    if not(args.s):
+        print("Target intensity is a multi-level image, taking the first layer")
     I = np.asarray(Image.open(args.I))[:, :, 0] # extract only the first channel if needed
 if I0.ndim==3:
-    print("Initial intensity is a multi-level image, taking the first layer")
+    if not (args.s):
+        print("Initial intensity is a multi-level image, taking the first layer")
     I0 = np.asarray(Image.open(args.I0))[:, :, 0]
 h, w = I.shape
 h_0, w_0 = I0.shape
@@ -163,10 +166,11 @@ if args.phi0:
     phi0 = np.asarray(Image.open(args.phi0))
 else :
     phi0=np.zeros((h_0, w_0))
-if h!=h_0:
+if h!=h_0 and not(args.s):
     print("Warning : Different target and initial intensity dimensions. Interpolation will be used")
 if h!=w:
-    print("Non square target intensity specified. Target intensity will be extended with zeros to be square.")
+    if not (args.s):
+        print("Non square target intensity specified. Target intensity will be extended with zeros to be square.")
     L=max(h,w) #size of the square
     tmp=np.zeros((L,L))
     i=int(L/2-h/2)
@@ -176,7 +180,8 @@ if h!=w:
     tmp[i:j,k:l]=I
     I=tmp
 if h_0!=w_0:
-    print("Non square target intensity specified. Target intensity will be extended with zeros to be square.")
+    if not (args.s):
+        print("Non square target intensity specified. Target intensity will be extended with zeros to be square.")
     L=max(h_0,w_0) #size of the square
     tmp=np.zeros((L,L))
     i=int(L/2-h_0/2)
@@ -194,7 +199,10 @@ smallest_dim = (min(h_0,w_0)/max(h_0,w_0))*size
 #Conversion of the initial phase to rad
 phi0 = ((SLM_levels/2)*np.ones(phi0.shape)-phi0) * (2 * np.pi / SLM_levels)
 # phase retrieval
-phi, mask_sr = phase_retrieval(I0, I, N_gs, False, threshold=mask_threshold)
+if not(args.s):
+    phi, mask_sr = phase_retrieval(I0, I, N_gs, False, threshold=mask_threshold)
+elif args.s :
+    phi, mask_sr = phase_retrieval(I0, I, N_gs, False, plot=False, threshold=mask_threshold)
 # propagate the computed solution to image plane
 N=I0.shape[0]
 phi0_sr = np.ones((N,N)) #signal region
@@ -210,7 +218,7 @@ I_final = np.reshape(Intensity(0, A), (N, N))
 RMS_1=np.sqrt(np.mean(mask_sr*(I-I_final)**2))
 #compute correlation
 corr=False
-if corr:
+if corr and not(args.s):
     print("Computing phase correlation")
     T0=time()
     Corr=np.corrcoef(phi0_sr*phi0, phi0_sr*Phi)
@@ -219,55 +227,51 @@ if corr:
 vmin=np.min(mask_sr*I)
 vmax=np.max(mask_sr*I)
 #compute RMS
-RMS=(1/2*np.pi)*np.sqrt(np.mean(phi0_sr*(phi-phi0)**2))
-RMS_1=(1/(np.max(I)-np.min(I)))*np.sqrt(np.mean(phi0_sr*(I-I_final)**2))
+RMS=(1/(np.max(I)-np.min(I)))*np.sqrt(np.mean(phi0_sr*(I-I_final)**2))
 #save results
-print(f"Folder to save the images /{results_path}/I0.png")
 plt.imsave(f"{results_path}/I0.png",I0, vmin=vmin, vmax=vmax, cmap='gray')
 plt.imsave(f"{results_path}/I.png",I, vmin=vmin, vmax=vmax, cmap='gray')
 plt.imsave(f"{results_path}/I_final.png",I_final, vmin=vmin, vmax=vmax, cmap='gray')
 plt.imsave(f"{results_path}/phi0.png",phi0, cmap='gray')
 plt.imsave(f"{results_path}/phi.png",phi, cmap='gray')
-f_rms=open(f"{results_path}/RMS_phase.txt", "w+")
-f_rms.write(f"RMS for the phase is : {RMS}")
+f_rms=open(f"{results_path}/RMS_intensity.txt", "w+")
+f_rms.write(f"RMS for the intensity is : {RMS}")
 f_rms.close()
-f_rms_1=open(f"{results_path}/RMS_intensity.txt", "w+")
-f_rms_1.write(f"RMS for the intensity is : {RMS_1}")
-f_rms_1.close()
 # Plot results : intensity and phase
 #min and max intensities in the signal region for proper normalization
-fig = plt.figure(0)
-if corr:
-    ax1 = fig.add_subplot(131)
-    ax2 = fig.add_subplot(132)
-    ax3 = fig.add_subplot(133)
-    ax4 = fig.add_subplot(224)
-    divider4 = make_axes_locatable(ax4)
-    cax4 = divider4.append_axes('right', size='5%', pad=0.05)
-else :
-    ax1 = fig.add_subplot(131)
-    ax2 = fig.add_subplot(132)
-    ax3 = fig.add_subplot(133)
-divider1 = make_axes_locatable(ax1)
-cax1 = divider1.append_axes('right', size='5%', pad=0.05)
-divider2 = make_axes_locatable(ax2)
-cax2 = divider2.append_axes('right', size='5%', pad=0.05)
-divider3 = make_axes_locatable(ax3)
-cax3 = divider3.append_axes('right', size='5%', pad=0.05)
-im1=ax1.imshow(phi, cmap="gray", vmin=-np.pi, vmax=np.pi)
-ax1.set_title(f"Mean reconstructed phase")
-ax1.text(8, 18, f"RMS = {round(RMS, ndigits=3)}", bbox={'facecolor': 'white', 'pad': 3})
-fig.colorbar(im1, cax = cax1)
-im2=ax2.imshow(I, cmap="gray", vmin=vmin, vmax=vmax)
-ax2.set_title("Target intensity")
-fig.colorbar(im2, cax = cax2)
-im3=ax3.imshow(I_final, cmap="gray", vmin=vmin, vmax=vmax)
-ax3.text(8, 18, f"RMS = {round(RMS_1, ndigits=3)}", bbox={'facecolor': 'white', 'pad': 3})
-ax3.set_title("Propagated intensity (with mean recontructed phase)")
-fig.colorbar(im3, cax = cax3)
-if corr:
-    im4=ax4.imshow(Corr, cmap="gray")
-    ax4.set_title("Correlation between target phase and reconstructed phase")
-    fig.colorbar(im4, cax = cax4)
-plt.show()
+if not(args.s):
+    fig = plt.figure(0)
+    if corr:
+        ax1 = fig.add_subplot(131)
+        ax2 = fig.add_subplot(132)
+        ax3 = fig.add_subplot(133)
+        ax4 = fig.add_subplot(224)
+        divider4 = make_axes_locatable(ax4)
+        cax4 = divider4.append_axes('right', size='5%', pad=0.05)
+    else :
+        ax1 = fig.add_subplot(131)
+        ax2 = fig.add_subplot(132)
+        ax3 = fig.add_subplot(133)
+    divider1 = make_axes_locatable(ax1)
+    cax1 = divider1.append_axes('right', size='5%', pad=0.05)
+    divider2 = make_axes_locatable(ax2)
+    cax2 = divider2.append_axes('right', size='5%', pad=0.05)
+    divider3 = make_axes_locatable(ax3)
+    cax3 = divider3.append_axes('right', size='5%', pad=0.05)
+    im1=ax1.imshow(phi, cmap="gray", vmin=-np.pi, vmax=np.pi)
+    ax1.set_title(f"Mean reconstructed phase")
+    ax1.text(8, 18, f"RMS = {round(RMS, ndigits=3)}", bbox={'facecolor': 'white', 'pad': 3})
+    fig.colorbar(im1, cax = cax1)
+    im2=ax2.imshow(I, cmap="gray", vmin=vmin, vmax=vmax)
+    ax2.set_title("Target intensity")
+    fig.colorbar(im2, cax = cax2)
+    im3=ax3.imshow(I_final, cmap="gray", vmin=vmin, vmax=vmax)
+    ax3.text(8, 18, f"RMS = {round(RMS_1, ndigits=3)}", bbox={'facecolor': 'white', 'pad': 3})
+    ax3.set_title("Propagated intensity (with mean recontructed phase)")
+    fig.colorbar(im3, cax = cax3)
+    if corr:
+        im4=ax4.imshow(Corr, cmap="gray")
+        ax4.set_title("Correlation between target phase and reconstructed phase")
+        fig.colorbar(im4, cax = cax4)
+    plt.show()
 
