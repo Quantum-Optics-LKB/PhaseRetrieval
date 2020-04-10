@@ -5,7 +5,7 @@ Following the 2 references below and taking advantage of my history with SLM's, 
 The approach presented in the 2 references is to use the SLM to modulate the face, and then use phase retrieval algos (Gerchberg-Saxton). The main advantage is that instead of doing one single calculation through a phase retrieval algo that is not perfect, one can average over the modulation thus greatly improving the precision of the reconstruction. 
 ![Principle of the algorithm](/images/wish_fig_2.png)
 
-**USAGE**
+**HOW DO I GET IT ?**
 
 Start by pulling the repository. For this there are two options :
 * Download the archive directly from GitHub.
@@ -16,6 +16,8 @@ Clone repository in your desired folder
 toto@pcdetoto:~/PathtotheplaceIwant/$ git clone https://github.com/quantumopticslkb/phase_retrieval.git
 ```
 You will need to enter the login and the password of the GitHub account.
+
+**USAGE**
 
 The program runs in command line for now. Here is the syntax :
 ```console
