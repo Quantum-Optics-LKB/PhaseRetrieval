@@ -133,7 +133,20 @@ def main():
         T3 = time.time() - T0
         print(f"Elapsed time : {T3} s")
         return pm_s, mask_sr
-
+    #modulation
+    def modulate(phi: np.ndarray, x: float):
+        """
+        A function to randomly modulating a phase map without introducing too much high frequency noise
+        :param phi: Phase map to be modulated
+        :param x : Modulation intensity. Must be between 0 and 1.
+        :return: phi_m a modulated phase map to multiply to phi
+        """
+        # generate (N/10)x(N/10) random matrices that will then be upscaled through interpolation
+        h, w = int(phi.shape[0] / 10), int(phi.shape[1] / 10)
+        M = np.pi * (x * (np.ones((h, w)) - 2 * np.random.rand(h, w, )))  # random matrix between [-x*pi and x*pi]
+        phi_m = interpolation.zoom(M, phi.shape[0] / h)
+        phi_m = phi_m * np.pi  # bring phase between [-pi.pi]
+        return phi_m
     #get current working directory
     cwd_path=os.getcwd()
     if args.output :
@@ -155,17 +168,19 @@ def main():
     conf.read(cfg_path)
 
     #List of hardcoded parameters to read from a config file
+
     size = float(conf["params"]["size"])  # size of the SLM window
     wavelength = float(conf["params"]["wavelength"])
     z = float(conf["params"]["z"]) # propagation distance
     N_gs = int(conf["params"]["N_gs"]) # number of GS iterations
-    #N_mod = int(conf["params"]["N_mod"])  # number of modulated samples for phase retrieval
+    N_mod = int(conf["params"]["N_mod"]) # number of modulation steps
     mod_intensity=float(conf["params"]["mod_intensity"]) #modulation intensity
     SLM_levels = int(conf["params"]["SLM_levels"]) #number of SLM levels
     mask_threshold = float(conf['params']['mask_threshold']) #intensity threshold for the signal region
     elements=[] #list of optical elements
     for element in conf["setup"]:
         elements.append(ast.literal_eval(conf['setup'][element]))
+
     # initiate  intensities, phase and mask
     I = np.asarray(Image.open(args.I))
     I0 = np.asarray(Image.open(args.I0))
@@ -182,20 +197,6 @@ def main():
     I0 = I0/np.max(I0)
     h, w = I.shape
     h_0, w_0 = I0.shape
-    # if the initial phase was supplied, assign it. If not flat wavefront.
-    if args.phi0:
-        phi0 = np.asarray(Image.open(args.phi0))
-        if phi0.ndim == 3:
-            if not (args.s):
-                print("Initial phase is a multi-level image, taking the first layer")
-            phi0 = phi0[:, :, 0]
-        # check if initial phase size matches the source intensity
-        if phi0.shape!=I0.shape:
-            print("Error : Initial phase size does not match source intensity size !")
-            raise
-    else :
-        phi0=np.zeros((h_0, w_0))
-
     if args.mask_sr:
         mask_sr = np.asarray(Image.open(args.mask_sr))
         if mask_sr.ndim == 3:
@@ -215,42 +216,96 @@ def main():
         L=max(h,w) #size of the square
         tmp=np.zeros((L,L))
         i=int(L/2-h/2)
-        j=int(L/2+h/2-1)
+        j=int(L/2+h/2)
         k = int(L / 2 - w / 2)
-        l = int(L / 2 + w / 2 - 1)
+        l = int(L / 2 + w / 2)
         tmp[i:j,k:l]=I
         I=tmp
     if h_0!=w_0:
         if not (args.s):
-            print("Non square source intensity specified. Target intensity will be extended with zeros to be square.")
+            print("Non square source intensity specified. Source intensity will be extended with zeros to be square.")
         L=max(h_0,w_0) #size of the square
         tmp=np.zeros((L,L))
         i=int(L/2-h_0/2)
-        j=int(L/2+h_0/2-1)
+        j=int(L/2+h_0/2)
         k = int(L / 2 - w_0 / 2)
-        l = int(L / 2 + w_0 / 2 - 1)
+        l = int(L / 2 + w_0 / 2)
         tmp[i:j,k:l]=I0
         I0=tmp
-
+    # refresh all sizes.
+    h, w = I.shape
+    h_0, w_0 = I0.shape
+    # if the initial phase was supplied, assign it. If not flat wavefront.
+    if args.phi0:
+        phi0 = np.asarray(Image.open(args.phi0))
+        if phi0.ndim == 3:
+            if not (args.s):
+                print("Initial phase is a multi-level image, taking the first layer")
+            phi0 = phi0[:, :, 0]
+    else:
+        phi0 = np.zeros((h_0, w_0))
+    h_phi0, w_phi0 = phi0.shape
+    if h_phi0!=w_phi0:
+        if not (args.s):
+            print("Non square source phase specified. Source phase will be extended with zeros to be square.")
+        L=max(h_phi0,w_phi0) #size of the square
+        tmp=np.zeros((L,L))
+        i=int(L/2-h_0/2)
+        j=int(L/2+h_0/2)
+        k = int(L / 2 - w_0 / 2)
+        l = int(L / 2 + w_0 / 2 )
+        tmp[i:j,k:l]=phi0
+        phi0=tmp
+    if h_0!=h_phi0 and not(args.s):
+        print("Warning : Different initial phase and initial intensity dimensions. Interpolation will be used")
+    #refresh all sizes.
+    h_phi0, w_phi0 = phi0.shape
     #Conversion of the initial phase to rad
     if args.phi0:
         phi0 = ((SLM_levels/2)*np.ones(phi0.shape)-phi0) * (2 * np.pi / SLM_levels)
-    # phase retrieval
-    if not(args.s):
-        if args.mask_sr:
-            phi, mask_sr = phase_retrieval(I0, I, N_gs, False, threshold=mask_threshold, mask_sr=mask_sr, phi0=phi0)
-        else :
-            phi, mask_sr = phase_retrieval(I0, I, N_gs, False, threshold=mask_threshold, phi0=phi0)
-    elif args.s :
-        if args.mask_sr:
-            phi, mask_sr = phase_retrieval(I0, I, N_gs, False, plot=False, threshold=mask_threshold, mask_sr=mask_sr, phi0=phi0)
-        else :
-            phi, mask_sr = phase_retrieval(I0, I, N_gs, False, plot=False, threshold=mask_threshold, phi0=phi0)
+    #if only one modulation step, do the regular computation
+    Phi, Mask = [], []
+    if N_mod ==1:
+        # phase retrieval
+        if not(args.s):
+            if args.mask_sr:
+                phi, mask_sr = phase_retrieval(I0, I, N_gs, False, threshold=mask_threshold, mask_sr=mask_sr, phi0=phi0)
+            else :
+                phi, mask_sr = phase_retrieval(I0, I, N_gs, False, threshold=mask_threshold, phi0=phi0)
+        elif args.s :
+            if args.mask_sr:
+                phi, mask_sr = phase_retrieval(I0, I, N_gs, False, plot=False, threshold=mask_threshold, mask_sr=mask_sr, phi0=phi0)
+            else :
+                phi, mask_sr = phase_retrieval(I0, I, N_gs, False, plot=False, threshold=mask_threshold, phi0=phi0)
+        Phi.append(phi)
+        Mask.append(mask_sr)
+    else :
+        # phase retrieval (run in silent mode for better speed)
+        T0 = time.time()
+        for i in range(N_mod):
+            print(f"Modulation step {i+1} of {N_mod}")
+            phi_m = phi0 + modulate(phi0, mod_intensity)
+            if args.mask_sr:
+                phi, mask_sr = phase_retrieval(I0, I, N_gs, False, plot=False, threshold=mask_threshold,
+                                               mask_sr=mask_sr, phi0=phi_m)
+            else:
+                phi, mask_sr = phase_retrieval(I0, I, N_gs, False, plot=False, threshold=mask_threshold, phi0=phi_m)
+            Phi.append(phi)
+            Mask.append(mask_sr)
+        T=time.time()-T0
+        print(f"Modulation done. Time elapsed {T} s")
+    Phi=np.array(Phi)
+    Mask = np.array(Mask)
+    phi=np.mean(Phi, axis=0)
+
     # propagate the computed solution to image plane
     N=I0.shape[0]
-    phi0_sr = np.ones((N,N)) #signal region
+    phi0_sr = np.ones((h_phi0,w_phi0)) #signal region
     phi0_sr[np.where(I0==0)[0], np.where(I0==0)[1]]=0
     phi0_sr[np.where(I0>0)[0], np.where(I0>0)[1]]=1
+    rms_sr = np.ones((h, w))  # signal region
+    rms_sr[np.where(I == 0)[0], np.where(I == 0)[1]] = 0
+    rms_sr[np.where(I > 0)[0], np.where(I > 0)[1]] = 1
     A = Begin(size, wavelength, N)
     A = SubIntensity(I0, A)
     #A = SubPhase(phi+phi0, A) #add source beam phase
@@ -259,7 +314,7 @@ def main():
     I_final = np.reshape(Intensity(0, A), (N, N))
 
     #Compute RMS
-    RMS_1=np.sqrt(np.mean(mask_sr*(I-I_final)**2))
+    RMS_1=np.sqrt(np.mean(rms_sr*(I-I_final)**2))
     #compute correlation
     corr=False
     if corr and not(args.s):
