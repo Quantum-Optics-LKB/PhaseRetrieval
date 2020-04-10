@@ -222,7 +222,7 @@ def main():
         I=tmp
     if h_0!=w_0:
         if not (args.s):
-            print("Non square target intensity specified. Target intensity will be extended with zeros to be square.")
+            print("Non square source intensity specified. Target intensity will be extended with zeros to be square.")
         L=max(h_0,w_0) #size of the square
         tmp=np.zeros((L,L))
         i=int(L/2-h_0/2)
@@ -253,7 +253,8 @@ def main():
     phi0_sr[np.where(I0>0)[0], np.where(I0>0)[1]]=1
     A = Begin(size, wavelength, N)
     A = SubIntensity(I0, A)
-    A = SubPhase(phi+phi0, A) #add source beam phase
+    #A = SubPhase(phi+phi0, A) #add source beam phase
+    A = SubPhase(phi, A) #add source beam phase
     A = Forvard(z, A)
     I_final = np.reshape(Intensity(0, A), (N, N))
 
