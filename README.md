@@ -86,6 +86,7 @@ The program should plot the following image of the auto defined mask for you to 
 After closing the plot, it will then run until it plots the final results like so :
 ![plot_result](/images/plot_result.png)
 
+Note that the RMS between the reconstructed intensity and the target intensity is displayed in the top left corner.
 The `harambe` folder should now contain a subfolder named `results` with the images saved as PNG.
 
 
