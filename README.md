@@ -28,6 +28,38 @@ There are 3 positional arguments :
 * `I0` : The source intensity
 * `cfg` : A config file containing the various physical parameters needed for the propagation. The template for such a file can be found [here](ComputeCGH/cgh_conf.conf)
 
+The structure of the configuration file is the following :
+```python
+[params]
+#size of the longest side of the source intensity in m
+size_SLM = 3.2768e-3
+#size of target intensity in m
+size = 3.2768e-3
+#wavelength of the field
+wavelength = 532e-9
+#propagation distance in m
+z = 25e-3
+#number of iterations for the GS loop
+N_gs = 2
+#modulation number (1 is disabled).
+N_mod = 2
+#modulation intensity (between 0 and 1) : how strong the initial phase is modulated
+mod_intensity=0.1
+#number of SLM levels (usually it's always 8 bits so 256 levels)
+SLM_levels = 256
+#Threshold above which the signal is considered
+mask_threshold = 5e-2
+
+[setup]
+#Elements of the optical setup
+#Attributes are the parameters from LightPipes, for instance f for a lens
+#distance is the distance from the previous optical element
+L1 = {'Name' : 'L1', 'Type' : 'Lens','Attributes' : 10e-2, 'distance' : 10e-2}
+L2 = {'Name' : 'L2', 'Type' : 'Lens','Attributes' : 20e-2, 'distance' : 20e-2}
+
+```
+For now the optical setup is not yet functionnal : the algo assumes a free space propagation from the SLM to the image plane. 
+
 There are 5 optional arguments:
 * `-h` : Print the help string and exit
 * `-phi0` : Path to initial phase of the source, for instance the calibration of the SLM that displays the hologram
@@ -54,6 +86,7 @@ The program should plot the following image of the auto defined mask for you to 
 After closing the plot, it will then run until it plots the final results like so :
 ![plot_result](/images/plot_result.png)
 
+Note that the RMS between the reconstructed intensity and the target intensity is displayed in the top left corner.
 The `harambe` folder should now contain a subfolder named `results` with the images saved as PNG.
 
 
