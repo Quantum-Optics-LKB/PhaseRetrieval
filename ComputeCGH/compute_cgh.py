@@ -314,7 +314,9 @@ def main():
     I_final = np.reshape(Intensity(0, A), (N, N))
 
     #Compute RMS
-    RMS_1=np.sqrt(np.mean(rms_sr*(I-I_final)**2))
+    RMS=np.sqrt(np.mean(rms_sr*(I-I_final)**2))
+    #Compute intensity conversion efficiency
+    conv_eff=np.sum(rms_sr*I)/np.sum(I0)
     #compute correlation
     corr=False
     if corr and not(args.s):
@@ -325,8 +327,7 @@ def main():
         print(f"Done ! It took me {T1} s. Mean correlation is {np.mean(Corr)}")
     vmin=np.min(mask_sr*I)
     vmax=np.max(mask_sr*I)
-    #compute RMS
-    RMS=(1/(np.max(I)-np.min(I)))*np.sqrt(np.mean(phi0_sr*(I-I_final)**2))
+
     #save results
     plt.imsave(f"{results_path}/I0.png",I0, vmin=vmin, vmax=vmax, cmap='gray')
     plt.imsave(f"{results_path}/I.png",I, vmin=vmin, vmax=vmax, cmap='gray')
@@ -335,6 +336,9 @@ def main():
     plt.imsave(f"{results_path}/phi.png",phi, cmap='gray')
     f_rms=open(f"{results_path}/RMS_intensity.txt", "w+")
     f_rms.write(f"RMS for the intensity is : {RMS}")
+    f_rms.close()
+    f_rms=open(f"{results_path}/conv_eff.txt", "w+")
+    f_rms.write(f"Conversion efficiency in the signal region is : {conv_eff}")
     f_rms.close()
     # Plot results : intensity and phase
     #min and max intensities in the signal region for proper normalization
@@ -359,13 +363,12 @@ def main():
         cax3 = divider3.append_axes('right', size='5%', pad=0.05)
         im1=ax1.imshow(phi, cmap="gray", vmin=-np.pi, vmax=np.pi)
         ax1.set_title(f"Mean reconstructed phase")
-        ax1.text(8, 18, f"RMS = {round(RMS, ndigits=3)}", bbox={'facecolor': 'white', 'pad': 3})
         fig.colorbar(im1, cax = cax1)
         im2=ax2.imshow(I, cmap="gray", vmin=vmin, vmax=vmax)
         ax2.set_title("Target intensity")
         fig.colorbar(im2, cax = cax2)
         im3=ax3.imshow(I_final, cmap="gray", vmin=vmin, vmax=vmax)
-        ax3.text(8, 18, f"RMS = {round(RMS_1, ndigits=3)}", bbox={'facecolor': 'white', 'pad': 3})
+        ax3.text(8, 18, f"RMS = {round(RMS, ndigits=3)}", bbox={'facecolor': 'white', 'pad': 3})
         ax3.set_title("Propagated intensity (with mean recontructed phase)")
         fig.colorbar(im3, cax = cax3)
         if corr:
