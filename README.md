@@ -5,7 +5,7 @@ Following the 2 references below and taking advantage of my history with SLM's, 
 The approach presented in the 2 references is to use the SLM to modulate the face, and then use phase retrieval algos (Gerchberg-Saxton). The main advantage is that instead of doing one single calculation through a phase retrieval algo that is not perfect, one can average over the modulation thus greatly improving the precision of the reconstruction. 
 ![Principle of the algorithm](/images/wish_fig_2.png)
 
-**USAGE**
+**HOW DO I GET IT ?**
 
 Start by pulling the repository. For this there are two options :
 * Download the archive directly from GitHub.
@@ -16,6 +16,9 @@ Clone repository in your desired folder
 toto@pcdetoto:~/PathtotheplaceIwant/$ git clone https://github.com/quantumopticslkb/phase_retrieval.git
 ```
 You will need to enter the login and the password of the GitHub account.
+
+**USAGE**
+
 The program runs in command line for now. Here is the syntax :
 ```console
 toto@pcdetoto:~/PathtotheplaceIwant/$ python compute_cgh.py I IO cfg [-h][-phi0] [-output] [-mask_sr] [-s]
@@ -46,8 +49,12 @@ Now run the command :
 toto@pcdetoto:~/PathtotheplaceIwant/$ python compute_cgh.py harambe_512.bmp I0.bmp cgh_conf.conf -output results 
 ```
 The program should plot the following image of the auto defined mask for you to check :
+![plot_sr](/images/plot_sr.png)
 
-The `harambe` folder should now contain a subfolder named `results` with the following images :
+After closing the plot, it will then run until it plots the final results like so :
+![plot_result](/images/plot_result.png)
+
+The `harambe` folder should now contain a subfolder named `results` with the images saved as PNG.
 
 
 **CONTRIBUTION**
@@ -55,6 +62,7 @@ The `harambe` folder should now contain a subfolder named `results` with the fol
 If you want to contribute, you are more than welcome to do so. Simply **create a new branch with you name on it**. If you do not know how to do it, simply use the GitHub webpage and click on "branches" and type the name of the branch you want to create:
 ![How do I create a new branch ?](/images/create_branch.png)
 **Then do not forget to checkout as this new branch !** :)
+Also feel free to declare issues if you see some, the code is still far from ideal.
 
 **PYTHON LIBS AND DEPENDENCIES** :  
 
