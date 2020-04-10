@@ -1,4 +1,3 @@
-#! /usr/bin/python
 # -*- coding: utf-8 -*-
 """
 @author : Tangui ALADJIDI
@@ -17,10 +16,8 @@ import argparse
 import textwrap
 
 
-
-
 #argument parser
-parser = argparse.ArgumentParser(prog='compute_cgh',
+parser = argparse.ArgumentParser(prog='ComputeCGH',
       formatter_class=argparse.RawDescriptionHelpFormatter,
       epilog=textwrap.dedent('''\
          Compute hologram yielding target intensity after propagation. Config file format
@@ -36,15 +33,12 @@ parser.add_argument("-s", help='Program runs silent without plots', action='stor
 args = parser.parse_args()
 
 def main():
-    def phase_retrieval(I0: np.ndarray, size_0: float, I: np.ndarray, size: float, k: int, unwrap: bool = False,
-                        plot: bool = True, threshold: float = 1e-2, **kwargs):
+    def phase_retrieval(I0: np.ndarray, I: np.ndarray, k: int, unwrap: bool = False, plot: bool = True,
+                        threshold: float = 1e-2, **kwargs):
         """
         Assumes the propagation in the provided setup to retrieve the phase from the intensity at the image plane
         :param I0: Source intensity field
-        :param size_0 : Source field size
         :param I: Intensity field from which to retrieve the phase
-        :param size : Target field size
-        :param wavelength
         :param f: Focal length of the lens conjugating the two planes
         :param N: Number of iterations for GS algorithm
         :param unwrap : Phase unwrapping at the end
@@ -54,8 +48,6 @@ def main():
         :param **phi0 : Initial phase of the source np.ndarray
         :return phi: The calculated phase map using Gerchberg-Saxton algorithm
         """
-        # Normalize intensity
-        I0 = I0 / np.max(I0)
         h_0, w_0 = I0.shape
         h, w = I.shape
         # initiate initial phase
@@ -63,21 +55,19 @@ def main():
             phi0 = kwargs["phi0"]
         else:
             phi0 = np.zeros((h, w))
-        # if no masks are specified, the function defines one in the first step by propagating the initial phase and source
-        # intensity to the image plane
-
-        if "mask_sr" not in kwargs:
-            mask_sr = np.zeros((h, w))
-            # initiate field in the SLM plane
-            signal_s = Begin(size_0, wavelength, h_0)
-            signal_s = SubIntensity(I0, signal_s)
-            signal_s = SubPhase(phi0, signal_s)
-            # propagate to image plane
-            signal_f = Forvard(z, signal_s)
-            # interpolate to new size
-            signal_f = Interpol(size, h, 0, 0, 0, 1, signal_f)
-            # Retrieve propagated intensity
-            I_f = np.reshape(Intensity(1, signal_f), (h, w))
+        mask_sr = np.zeros((h, w))
+        # initiate field in the SLM plane
+        signal_s = Begin(size, wavelength, h_0)
+        signal_s = SubIntensity(I0, signal_s)
+        signal_s = SubPhase(phi0, signal_s)
+        # propagate to image plane
+        signal_f = Forvard(z, signal_s)
+        # interpolate to target size
+        signal_f = Interpol(size, h, 0, 0, 0, 1, signal_f)
+        # Retrieve propagated intensity
+        I_f = np.reshape(Intensity(1, signal_f), (h, w))
+        # if no masks are specified, the function defines one
+        if "mask_nr" not in kwargs:
             # detect outermost non zero target intensity point
             non_zero = np.array(np.where(I_f > threshold))
             non_zero_offset = np.zeros(non_zero.shape)
@@ -99,59 +89,47 @@ def main():
                 mask_sr[i_min:i_max, i_min:i_max] = 1
             else:
                 mask_sr[j_min:j_max, j_min:j_max] = 1
-            mask_nr = np.ones(mask_sr.shape) - mask_sr
             if plot:
                 fig = plt.figure(0)
                 ax1 = fig.add_subplot(121)
                 ax2 = fig.add_subplot(122)
                 ax1.imshow(I_f, cmap="gray")
-                ax1.set_title("Initial intensity propagated with initial phase")
+                ax1.set_title("Source intensity and phase at z")
                 ax2.imshow(mask_sr, cmap="gray")
                 ax2.set_title(f"Signal region (Threshold = {threshold})")
                 scat = ax2.scatter(non_zero[0][R_max], non_zero[1][R_max], color='r')
                 scat.set_label('Threshold point')
                 plt.legend()
                 plt.show()
-
-            T0 = time.time()
-            signal_f = Begin(size, wavelength, h)
-            I_f_old = np.zeros(I.shape)
-            for i in range(k):
-                T1 = time.time()
-                signal_f = SubIntensity(I * mask_sr + I_f_old * mask_nr,
-                                        signal_f)  # Substitute the measured far field into the field only in the signal region
-                signal_s = Forvard(-z, signal_f)  # Propagate back to the near field
-                signal_s = SubIntensity(I0, signal_s)  # Substitute the measured near field into the field
-                signal_f = Forvard(z, signal_s)  # Propagate to the far field
-                I_f_old = Intensity(0, signal_f)  # retrieve far field intensity
-                T2 = time.time() - T1
-                if i % 10 == 0:
-                    print(f"{round(100 * (i / k), ndigits=3)} % done ... ({T2} s per step)")
-
         else:
-            # If a mask is already supplied, just do the regular loop
             mask_sr = kwargs["mask_sr"]
-            # initiate field in the SLM plane
-            signal_s = Begin(size, wavelength, h)
-            signal_s = SubIntensity(I0, signal_s)
-            signal_s = SubPhase(phi0, signal_s)
-            for i in range(k):
-                T1 = time.time()
-                signal_f = Forvard(z, signal_s)  # Propagate to the far field
-                signal_f = Interpol(size, h, 0, 0, 0, 1, signal_f)  # interpolate
-                I_f_old = Intensity(0, signal_f)  # retrieve far field intensity
-                signal_f = SubIntensity(I * mask_sr + I_f_old * mask_nr,
-                                        signal_f)  # Substitute the measured far field into the field only in the signal region
-                signal_s = Forvard(-z, signal_f)  # Propagate back to the near field
-                signal_s = Interpol(size_0, h_0, 0, 0, 0, 1, signal_s)
-                signal_s = SubIntensity(I0, signal_s)  # Substitute the measured near field into the field
-                T2 = time.time() - T1
-                if i % 10 == 0:
-                    print(f"{round(100 * (i / k), ndigits=3)} % done ... ({T2} s per step)")
+        mask_nr = np.ones(mask_sr.shape) - mask_sr
+        T0 = time.time()
+        # initiate field in the SLM plane
+        signal_s = Begin(size, wavelength, h)
+        signal_s = SubIntensity(I0, signal_s)
+        signal_s = SubPhase(phi0, signal_s)
+        for i in range(k):
+            T1 = time.time()
+            signal_f = Forvard(z, signal_s)  # Propagate to the far field
+            # interpolate to target size
+            signal_f = Interpol(size, h, 0, 0, 0, 1, signal_f)
+            I_f_old = Intensity(0, signal_f)  # retrieve far field intensity
+            signal_f = SubIntensity(I * mask_sr + I_f_old * mask_nr,
+                                    signal_f)  # Substitute the measured far field into the field only in the signal region
+            signal_s = Forvard(-z, signal_f)  # Propagate back to the near field
+            # interpolate to source size
+            signal_s = Interpol(size, h_0, 0, 0, 0, 1, signal_s)
+            signal_s = SubIntensity(I0, signal_s)  # Substitute the measured near field into the field
+            #pm_s = np.reshape(Phase(signal_s), (h_0, w_0))
+            # signal_s = SubPhase(phi0+pm_s, signal_s) #add the source field phase
+            T2 = time.time() - T1
+            if i % 10 == 0:
+                print(f"{round(100 * (i / k), ndigits=3)} % done ... ({T2} s per step)")
         pm_s = Phase(signal_s)
         if unwrap:
             pm_s = PhaseUnwrap(pm_s)
-        pm_s = np.reshape(pm_s, (h_0, w_0))
+        pm_s = np.reshape(pm_s, (h, w))
         T3 = time.time() - T0
         print(f"Elapsed time : {T3} s")
         return pm_s, mask_sr
@@ -177,8 +155,7 @@ def main():
     conf.read(cfg_path)
 
     #List of hardcoded parameters to read from a config file
-    size_SLM = float(conf["params"]["size_SLM"])  # size of the SLM window
-    size = float(conf["params"]["size"])  # size of the image plane
+    size = float(conf["params"]["size"])  # size of the SLM window
     wavelength = float(conf["params"]["wavelength"])
     z = float(conf["params"]["z"]) # propagation distance
     N_gs = int(conf["params"]["N_gs"]) # number of GS iterations
@@ -200,6 +177,9 @@ def main():
         if not (args.s):
             print("Initial intensity is a multi-level image, taking the first layer")
         I0 = I0[:, :, 0]
+    #normalize intensities
+    I = I/np.max(I)
+    I0 = I0/np.max(I0)
     h, w = I.shape
     h_0, w_0 = I0.shape
     # if the initial phase was supplied, assign it. If not flat wavefront.
@@ -227,7 +207,6 @@ def main():
             print("Error : Signal region size does not match target intensity size !")
             raise
 
-
     if h!=h_0 and not(args.s):
         print("Warning : Different target and initial intensity dimensions. Interpolation will be used")
     if h!=w:
@@ -252,26 +231,21 @@ def main():
         l = int(L / 2 + w_0 / 2 - 1)
         tmp[i:j,k:l]=I0
         I0=tmp
-    #Some smart thing for padding using a diffraction criterion to estimate beam widening.
-    #Diffraction angle for a slit of width w : sin(theta)=lambda/w
-    #approximate width after z : w+2*z*lambda/w (not a lot at optical wavelengths with
-    #We take the smallest dimension of the source intensity :
-    smallest_dim = (min(h_0,w_0)/max(h_0,w_0))*size
-    #TODO
+
     #Conversion of the initial phase to rad
     if args.phi0:
         phi0 = ((SLM_levels/2)*np.ones(phi0.shape)-phi0) * (2 * np.pi / SLM_levels)
     # phase retrieval
     if not(args.s):
         if args.mask_sr:
-            phi, mask_sr = phase_retrieval(I0, size_SLM, I, size, N_gs, False, threshold=mask_threshold, mask_sr=mask_sr, phi0=phi0)
+            phi, mask_sr = phase_retrieval(I0, I, N_gs, False, threshold=mask_threshold, mask_sr=mask_sr, phi0=phi0)
         else :
-            phi, mask_sr = phase_retrieval(I0, size_SLM, I, size, N_gs, False, threshold=mask_threshold, phi0=phi0)
+            phi, mask_sr = phase_retrieval(I0, I, N_gs, False, threshold=mask_threshold, phi0=phi0)
     elif args.s :
         if args.mask_sr:
-            phi, mask_sr = phase_retrieval(I0, size_SLM, I, size, N_gs, False, plot=False, threshold=mask_threshold, mask_sr=mask_sr, phi0=phi0)
+            phi, mask_sr = phase_retrieval(I0, I, N_gs, False, plot=False, threshold=mask_threshold, mask_sr=mask_sr, phi0=phi0)
         else :
-            phi, mask_sr = phase_retrieval(I0, size_SLM, I, size, N_gs, False, plot=False, threshold=mask_threshold, phi0=phi0)
+            phi, mask_sr = phase_retrieval(I0, I, N_gs, False, plot=False, threshold=mask_threshold, phi0=phi0)
     # propagate the computed solution to image plane
     N=I0.shape[0]
     phi0_sr = np.ones((N,N)) #signal region
@@ -279,10 +253,12 @@ def main():
     phi0_sr[np.where(I0>0)[0], np.where(I0>0)[1]]=1
     A = Begin(size, wavelength, N)
     A = SubIntensity(I0, A)
-    A = SubPhase(phi+phi0, A) #add initial phase
+    A = SubPhase(phi+phi0, A) #add source beam phase
     A = Forvard(z, A)
     I_final = np.reshape(Intensity(0, A), (N, N))
 
+    #Compute RMS
+    RMS_1=np.sqrt(np.mean(mask_sr*(I-I_final)**2))
     #compute correlation
     corr=False
     if corr and not(args.s):
@@ -294,7 +270,7 @@ def main():
     vmin=np.min(mask_sr*I)
     vmax=np.max(mask_sr*I)
     #compute RMS
-    RMS=np.sqrt(np.mean(phi0_sr*(I-I_final)**2))
+    RMS=(1/(np.max(I)-np.min(I)))*np.sqrt(np.mean(phi0_sr*(I-I_final)**2))
     #save results
     plt.imsave(f"{results_path}/I0.png",I0, vmin=vmin, vmax=vmax, cmap='gray')
     plt.imsave(f"{results_path}/I.png",I, vmin=vmin, vmax=vmax, cmap='gray')
@@ -327,12 +303,13 @@ def main():
         cax3 = divider3.append_axes('right', size='5%', pad=0.05)
         im1=ax1.imshow(phi, cmap="gray", vmin=-np.pi, vmax=np.pi)
         ax1.set_title(f"Mean reconstructed phase")
+        ax1.text(8, 18, f"RMS = {round(RMS, ndigits=3)}", bbox={'facecolor': 'white', 'pad': 3})
         fig.colorbar(im1, cax = cax1)
         im2=ax2.imshow(I, cmap="gray", vmin=vmin, vmax=vmax)
         ax2.set_title("Target intensity")
         fig.colorbar(im2, cax = cax2)
         im3=ax3.imshow(I_final, cmap="gray", vmin=vmin, vmax=vmax)
-        ax3.text(8, 18, f"RMS = {round(RMS, ndigits=3)}", bbox={'facecolor': 'white', 'pad': 3})
+        ax3.text(8, 18, f"RMS = {round(RMS_1, ndigits=3)}", bbox={'facecolor': 'white', 'pad': 3})
         ax3.set_title("Propagated intensity (with mean recontructed phase)")
         fig.colorbar(im3, cax = cax3)
         if corr:

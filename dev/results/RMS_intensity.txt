@@ -1,1 +1,1 @@
-RMS for the intensity is : 0.01328064734132853
+RMS for the intensity is : 0.013277506698546883
