@@ -21,7 +21,7 @@ You will need to enter the login and the password of the GitHub account.
 
 The program runs in command line for now. Here is the syntax :
 ```console
-toto@pcdetoto:~/PathtotheplaceIwant/$ python compute_cgh.py I IO cfg [-h][-phi0] [-output] [-mask_sr] [-s]
+toto@pcdetoto:~/PathtotheplaceIwant/$ python3 compute_cgh.py I IO cfg [-h][-phi0] [-output] [-mask_sr] [-s]
 ```
 There are 3 positional arguments :
 * `I` : The target intensity

@@ -14,6 +14,7 @@ import configparser
 import ast
 import argparse
 import textwrap
+import sys
 
 
 #argument parser
@@ -31,6 +32,26 @@ parser.add_argument("-mask_sr", help="Path to signal region mask", type=str)
 parser.add_argument("-output", help='Path to results folder', type=str)
 parser.add_argument("-s", help='Program runs silent without plots', action='store_true')
 args = parser.parse_args()
+#progress bar
+def update_progress(progress):
+    barLength = 20 # Modify this to change the length of the progress bar
+    status = ""
+    if isinstance(progress, int):
+        progress = float(progress)
+    if not isinstance(progress, float):
+        progress = 0
+        status = "error: progress var must be float\r\n"
+    if progress < 0:
+        progress = 0
+        status = "Halt...\r\n"
+    if progress >= 1:
+        progress = 1
+        status = "Done...\r\n"
+    block = int(round(barLength*progress))
+    text = "\rProgress : [{0}] {1}% {2}".format( "#"*block + "-"*(barLength-block), round(progress*100, ndigits=1), status)
+    sys.stdout.write(text)
+    sys.stdout.flush()
+
 
 def main():
     def phase_retrieval(I0: np.ndarray, I: np.ndarray, k: int, unwrap: bool = False, plot: bool = True,
@@ -124,9 +145,14 @@ def main():
             #pm_s = np.reshape(Phase(signal_s), (h_0, w_0))
             # signal_s = SubPhase(phi0+pm_s, signal_s) #add the source field phase
             T2 = time.time() - T1
-            if i % 10 == 0:
-                print(f"{round(100 * (i / k), ndigits=3)} % done ... ({T2} s per step)")
+            #if i % 10 == 0:
+            #    progress=round(100 * (i / k), ndigits=3)
+            #    print(f"{progress} % done ... ({T2} s per step)")
+                #indent progress bar
+            progress=float((i+1)/k)
+            update_progress(progress)
         pm_s = Phase(signal_s)
+
         if unwrap:
             pm_s = PhaseUnwrap(pm_s)
         pm_s = np.reshape(pm_s, (h, w))
@@ -314,7 +340,7 @@ def main():
     I_final = np.reshape(Intensity(0, A), (N, N))
 
     #Compute RMS
-    RMS_1=np.sqrt(np.mean(rms_sr*(I-I_final)**2))
+    RMS=np.sqrt(np.mean(rms_sr*(I-I_final)**2))
     #compute correlation
     corr=False
     if corr and not(args.s):
@@ -359,13 +385,12 @@ def main():
         cax3 = divider3.append_axes('right', size='5%', pad=0.05)
         im1=ax1.imshow(phi, cmap="gray", vmin=-np.pi, vmax=np.pi)
         ax1.set_title(f"Mean reconstructed phase")
-        ax1.text(8, 18, f"RMS = {round(RMS, ndigits=3)}", bbox={'facecolor': 'white', 'pad': 3})
         fig.colorbar(im1, cax = cax1)
         im2=ax2.imshow(I, cmap="gray", vmin=vmin, vmax=vmax)
         ax2.set_title("Target intensity")
         fig.colorbar(im2, cax = cax2)
         im3=ax3.imshow(I_final, cmap="gray", vmin=vmin, vmax=vmax)
-        ax3.text(8, 18, f"RMS = {round(RMS_1, ndigits=3)}", bbox={'facecolor': 'white', 'pad': 3})
+        ax3.text(8, 18, f"RMS = {round(RMS, ndigits=3)}", bbox={'facecolor': 'white', 'pad': 3})
         ax3.set_title("Propagated intensity (with mean recontructed phase)")
         fig.colorbar(im3, cax = cax3)
         if corr:

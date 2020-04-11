@@ -32,6 +32,7 @@ parser.add_argument("-mask_sr", help="Path to signal region mask", type=str)
 parser.add_argument("-output", help='Path to results folder', type=str)
 parser.add_argument("-s", help='Program runs silent without plots', action='store_true')
 args = parser.parse_args()
+#progress bar
 def update_progress(progress):
     barLength = 20 # Modify this to change the length of the progress bar
     status = ""
@@ -148,7 +149,7 @@ def main():
             #    progress=round(100 * (i / k), ndigits=3)
             #    print(f"{progress} % done ... ({T2} s per step)")
                 #indent progress bar
-            progress=float(i/k)
+            progress=float((i+1)/k)
             update_progress(progress)
         pm_s = Phase(signal_s)
 
@@ -309,7 +310,8 @@ def main():
         T0 = time.time()
         for i in range(N_mod):
             print(f"Modulation step {i+1} of {N_mod}")
-            phi_m = phi0 + modulate(phi0, mod_intensity)
+            #phi_m = phi0 + modulate(phi0, mod_intensity)
+            phi_m = phi0 + (2*np.pi/N_mod)*np.ones((h_0, w_0))
             if args.mask_sr:
                 phi, mask_sr = phase_retrieval(I0, I, N_gs, False, plot=False, threshold=mask_threshold,
                                                mask_sr=mask_sr, phi0=phi_m)
@@ -320,6 +322,8 @@ def main():
         T=time.time()-T0
         print(f"Modulation done. Time elapsed {T} s")
     Phi=np.array(Phi)
+    #save this array for later processing
+    np.save("Phi", Phi)
     Mask = np.array(Mask)
     phi=np.mean(Phi, axis=0)
 
@@ -340,6 +344,8 @@ def main():
 
     #Compute RMS
     RMS=np.sqrt(np.mean(rms_sr*(I-I_final)**2))
+    # Compute intensity conversion efficiency
+    conv_eff = np.sum(rms_sr * I) / np.sum(I0)
     #compute correlation
     corr=False
     if corr and not(args.s):
@@ -361,6 +367,9 @@ def main():
     f_rms=open(f"{results_path}/RMS_intensity.txt", "w+")
     f_rms.write(f"RMS for the intensity is : {RMS}")
     f_rms.close()
+    f_iconv = open(f"{results_path}/conv_eff.txt", "w+")
+    f_iconv.write(f"Conversion efficiency in the signal region is : {conv_eff}")
+    f_iconv.close()
     # Plot results : intensity and phase
     #min and max intensities in the signal region for proper normalization
     if not(args.s):
@@ -389,7 +398,7 @@ def main():
         ax2.set_title("Target intensity")
         fig.colorbar(im2, cax = cax2)
         im3=ax3.imshow(I_final, cmap="gray", vmin=vmin, vmax=vmax)
-        ax3.text(8, 18, f"RMS = {round(RMS, ndigits=3)}", bbox={'facecolor': 'white', 'pad': 3})
+        ax3.text(8, 18, f"RMS = {round(RMS, ndigits=3)} CONV = {round(conv_eff, ndigits=3)}", bbox={'facecolor': 'white', 'pad': 3})
         ax3.set_title("Propagated intensity (with mean recontructed phase)")
         fig.colorbar(im3, cax = cax3)
         if corr:
