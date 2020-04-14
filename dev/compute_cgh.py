@@ -9,6 +9,7 @@ from PIL import Image  # for custom phase / intensity masks
 import time
 from scipy.ndimage import interpolation
 from mpl_toolkits.axes_grid1 import make_axes_locatable
+from mpl_toolkits.mplot3d import Axes3D
 import os
 import configparser
 import ast
@@ -361,19 +362,19 @@ def main():
     phi=np.mean(Phi, axis=0)
 
     # propagate the computed solution to image plane
-    N=I0.shape[0]
     phi0_sr = np.ones((h_phi0,w_phi0)) #signal region
     phi0_sr[np.where(I0==0)[0], np.where(I0==0)[1]]=0
     phi0_sr[np.where(I0>0)[0], np.where(I0>0)[1]]=1
     rms_sr = np.ones((h, w))  # signal region
     rms_sr[np.where(I == 0)[0], np.where(I == 0)[1]] = 0
     rms_sr[np.where(I > 0)[0], np.where(I > 0)[1]] = 1
-    A = Begin(size, wavelength, N)
+    A = Begin(size, wavelength, h_0)
     A = SubIntensity(I0, A)
     #A = SubPhase(phi+phi0, A) #add source beam phase
     A = SubPhase(phi, A) #add source beam phase
     A = Forvard(z, A)
-    I_final = np.reshape(Intensity(0, A), (N, N))
+    I_final = np.reshape(Intensity(0, A), (h_0, h_0))
+    phi_final = np.reshape(Intensity(0, A), (h_0, h_0))
     #Compute FT of reconstructed intensity.
     I_tf = np.fft.fft2(I_final)
     I_tf = np.abs(np.fft.fftshift(I_tf))
@@ -407,15 +408,15 @@ def main():
         ax1 = fig.add_subplot(221)
         ax2 = fig.add_subplot(222)
         ax3 = fig.add_subplot(223)
-        ax4 = fig.add_subplot(224)
+        ax4 = fig.add_subplot(224, projection='3d')
         divider1 = make_axes_locatable(ax1)
         cax1 = divider1.append_axes('right', size='5%', pad=0.05)
         divider2 = make_axes_locatable(ax2)
         cax2 = divider2.append_axes('right', size='5%', pad=0.05)
         divider3 = make_axes_locatable(ax3)
         cax3 = divider3.append_axes('right', size='5%', pad=0.05)
-        divider4 = make_axes_locatable(ax4)
-        cax4 = divider4.append_axes('right', size='5%', pad=0.05)
+        #divider4 = make_axes_locatable(ax4)
+        #cax4 = divider4.append_axes('bottom', size='5%', pad=0.05)
         im1=ax1.imshow(phi, cmap="viridis", vmin=-np.pi, vmax=np.pi)
         ax1.set_title(f"Mean reconstructed phase")
         fig.colorbar(im1, cax = cax1)
@@ -427,9 +428,14 @@ def main():
         ax3.set_title("Propagated intensity (with mean recontructed phase)")
         fig.colorbar(im3, cax = cax3)
         extent=[min(freq), max(freq), min(freq), max(freq)]
-        im4 = ax4.imshow(phi_tf, cmap="viridis", extent=extent)
-        ax4.set_title("Fourier transform of retrieved phase")
-        fig.colorbar(im4, cax=cax4)
+        #im4 = ax4.imshow(phi_tf, cmap="viridis", extent=extent)
+        #im4 = ax4.imshow(phi_final, cmap="viridis")
+        X=np.linspace(0,h-1, h)
+        Y=np.linspace(0,h-1, h)
+        X, Y = np.meshgrid(X,Y)
+        im4 = ax4.plot_surface(X, Y, phi_final, cmap='viridis')
+        ax4.set_title("Phase after propagation")
+        #fig.colorbar(im4, cax=cax4)
         plt.show()
 if __name__ == "__main__":
 	main()
