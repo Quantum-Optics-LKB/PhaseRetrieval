@@ -368,8 +368,6 @@ def main():
     rms_sr = np.ones((h, w))  # signal region
     rms_sr[np.where(I == 0)[0], np.where(I == 0)[1]] = 0
     rms_sr[np.where(I > 0)[0], np.where(I > 0)[1]] = 1
-    plt.imshow(rms_sr)
-    plt.show()
     A = Begin(size, wavelength, h_0)
     A = SubIntensity(I0, A)
     #A = SubPhase(phi+phi0, A) #add source beam phase
