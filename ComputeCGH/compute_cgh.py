@@ -9,6 +9,7 @@ from PIL import Image  # for custom phase / intensity masks
 import time
 from scipy.ndimage import interpolation
 from mpl_toolkits.axes_grid1 import make_axes_locatable
+from mpl_toolkits.mplot3d import Axes3D
 import os
 import configparser
 import ast
@@ -16,11 +17,10 @@ import argparse
 import textwrap
 import sys
 
-
-#argument parser
+# argument parser
 parser = argparse.ArgumentParser(prog='ComputeCGH',
-      formatter_class=argparse.RawDescriptionHelpFormatter,
-      epilog=textwrap.dedent('''\
+                                 formatter_class=argparse.RawDescriptionHelpFormatter,
+                                 epilog=textwrap.dedent('''\
          Compute hologram yielding target intensity after propagation. Config file format
          can be found in the README.md at https://github.com/quantumopticslkb/phase_retrieval
          '''))
@@ -32,9 +32,11 @@ parser.add_argument("-mask_sr", help="Path to signal region mask", type=str)
 parser.add_argument("-output", help='Path to results folder', type=str)
 parser.add_argument("-s", help='Program runs silent without plots', action='store_true')
 args = parser.parse_args()
-#progress bar
+
+
+# progress bar
 def update_progress(progress):
-    barLength = 20 # Modify this to change the length of the progress bar
+    barLength = 20  # Modify this to change the length of the progress bar
     status = ""
     if isinstance(progress, int):
         progress = float(progress)
@@ -47,8 +49,9 @@ def update_progress(progress):
     if progress >= 1:
         progress = 1
         status = "Done...\r\n"
-    block = int(round(barLength*progress))
-    text = "\rProgress : [{0}] {1}% {2}".format( "#"*block + "-"*(barLength-block), round(progress*100, ndigits=1), status)
+    block = int(round(barLength * progress))
+    text = "\rProgress : [{0}] {1}% {2}".format("#" * block + "-" * (barLength - block),
+                                                round(progress * 100, ndigits=1), status)
     sys.stdout.write(text)
     sys.stdout.flush()
 
@@ -87,6 +90,10 @@ def main():
         signal_f = Interpol(size, h, 0, 0, 0, 1, signal_f)
         # Retrieve propagated intensity
         I_f = np.reshape(Intensity(1, signal_f), (h, w))
+        # compute FT
+        I_tf = np.fft.fft2(I_f)
+        I_tf = np.abs(np.fft.fftshift(I_tf))
+        freq = np.fft.fftfreq(h, d=size / h)
         # if no masks are specified, the function defines one
         if "mask_nr" not in kwargs:
             # detect outermost non zero target intensity point
@@ -112,15 +119,22 @@ def main():
                 mask_sr[j_min:j_max, j_min:j_max] = 1
             if plot:
                 fig = plt.figure(0)
-                ax1 = fig.add_subplot(121)
-                ax2 = fig.add_subplot(122)
-                ax1.imshow(I_f, cmap="gray")
+                ax1 = fig.add_subplot(131)
+                ax2 = fig.add_subplot(132)
+                ax3 = fig.add_subplot(133)
+                divider3 = make_axes_locatable(ax3)
+                cax3 = divider3.append_axes('right', size='5%', pad=0.05)
+                ax1.imshow(I_f, cmap="viridis")
                 ax1.set_title("Source intensity and phase at z")
-                ax2.imshow(mask_sr, cmap="gray")
+                ax2.imshow(mask_sr, cmap="viridis")
                 ax2.set_title(f"Signal region (Threshold = {threshold})")
                 scat = ax2.scatter(non_zero[0][R_max], non_zero[1][R_max], color='r')
                 scat.set_label('Threshold point')
-                plt.legend()
+                ax2.legend()
+                extent = [min(freq), max(freq), min(freq), max(freq)]
+                im3 = ax3.imshow(I_tf, cmap="viridis", extent=extent)
+                ax3.set_title("Fourier transform of propagated intensity")
+                fig.colorbar(im3, cax=cax3)
                 plt.show()
         else:
             mask_sr = kwargs["mask_sr"]
@@ -142,14 +156,14 @@ def main():
             # interpolate to source size
             signal_s = Interpol(size, h_0, 0, 0, 0, 1, signal_s)
             signal_s = SubIntensity(I0, signal_s)  # Substitute the measured near field into the field
-            #pm_s = np.reshape(Phase(signal_s), (h_0, w_0))
+            # pm_s = np.reshape(Phase(signal_s), (h_0, w_0))
             # signal_s = SubPhase(phi0+pm_s, signal_s) #add the source field phase
             T2 = time.time() - T1
-            #if i % 10 == 0:
+            # if i % 10 == 0:
             #    progress=round(100 * (i / k), ndigits=3)
             #    print(f"{progress} % done ... ({T2} s per step)")
-                #indent progress bar
-            progress=float((i+1)/k)
+            # indent progress bar
+            progress = float((i + 1) / k)
             update_progress(progress)
         pm_s = Phase(signal_s)
 
@@ -159,7 +173,8 @@ def main():
         T3 = time.time() - T0
         print(f"Elapsed time : {T3} s")
         return pm_s, mask_sr
-    #modulation
+
+    # modulation
     def modulate(phi: np.ndarray, x: float):
         """
         A function to randomly modulating a phase map without introducing too much high frequency noise
@@ -173,54 +188,78 @@ def main():
         phi_m = interpolation.zoom(M, phi.shape[0] / h)
         phi_m = phi_m * np.pi  # bring phase between [-pi.pi]
         return phi_m
-    #get current working directory
-    cwd_path=os.getcwd()
-    if args.output :
-        results_path=f"{args.output}"
+
+    def gaussian_profile(I: np.ndarray, sigma: float):
+        """
+
+        :param I: Intensity to which a gaussian profile is going to be applied
+        :param sigma: Standard deviation of the gaussian profile, in fraction of the provided intensity size
+        :return: I_gauss : the "gaussianized" intensity
+        """
+        h, w = I.shape
+        # define a radial position matrix
+        R = np.zeros((h, w))
+        for i in range(h):
+            for j in range(w):
+                R[i, j] = np.sqrt((h / 2 - i) ** 2 + (w / 2 - j) ** 2)
+        sig = sigma * max(h, w)
+        G = np.exp(-R ** 2 / (2 * sig ** 2))
+        I_gauss = I * G
+        return I_gauss
+
+    # get current working directory
+    cwd_path = os.getcwd()
+    if args.output:
+        results_path = f"{args.output}"
     else:
-    #creates a path for the results folder with creation time in the name for convenience in terms of multiple calculation
-        results_path=f"generated_cgh_"+str(time.gmtime().tm_hour)+str(time.gmtime().tm_min)+str(time.gmtime().tm_sec)
-    #if the folder doesn't already exist, create it
-    if not(os.path.isdir(f"{results_path}")):
+        # creates a path for the results folder with creation time in the name for convenience in terms of multiple calculation
+        results_path = f"generated_cgh_" + str(time.gmtime().tm_hour) + str(time.gmtime().tm_min) + str(
+            time.gmtime().tm_sec)
+    # if the folder doesn't already exist, create it
+    if not (os.path.isdir(f"{results_path}")):
         try:
             os.mkdir(f"{cwd_path}/{results_path}")
         except OSError:
-            print("I did not manage to create the specified results folder, maybe there is an error in the specified path ?")
+            print(
+                "I did not manage to create the specified results folder, maybe there is an error in the specified path ?")
             raise
 
-    #initiate parser that reads the config file
+    # initiate parser that reads the config file
     cfg_path = args.cfg
-    conf=configparser.ConfigParser()
+    conf = configparser.ConfigParser()
     conf.read(cfg_path)
 
-    #List of hardcoded parameters to read from a config file
+    # List of hardcoded parameters to read from a config file
 
     size = float(conf["params"]["size"])  # size of the SLM window
     wavelength = float(conf["params"]["wavelength"])
-    z = float(conf["params"]["z"]) # propagation distance
-    N_gs = int(conf["params"]["N_gs"]) # number of GS iterations
-    N_mod = int(conf["params"]["N_mod"]) # number of modulation steps
-    mod_intensity=float(conf["params"]["mod_intensity"]) #modulation intensity
-    SLM_levels = int(conf["params"]["SLM_levels"]) #number of SLM levels
-    mask_threshold = float(conf['params']['mask_threshold']) #intensity threshold for the signal region
-    elements=[] #list of optical elements
+    z = float(conf["params"]["z"])  # propagation distance
+    N_gs = int(conf["params"]["N_gs"])  # number of GS iterations
+    N_mod = int(conf["params"]["N_mod"])  # number of modulation steps
+    mod_intensity = float(conf["params"]["mod_intensity"])  # modulation intensity
+    SLM_levels = int(conf["params"]["SLM_levels"])  # number of SLM levels
+    mask_threshold = float(conf['params']['mask_threshold'])  # intensity threshold for the signal region
+    elements = []  # list of optical elements
     for element in conf["setup"]:
         elements.append(ast.literal_eval(conf['setup'][element]))
 
     # initiate  intensities, phase and mask
     I = np.asarray(Image.open(args.I))
     I0 = np.asarray(Image.open(args.I0))
-    if I.ndim==3:
-        if not(args.s):
+    if I.ndim == 3:
+        if not (args.s):
             print("Target intensity is a multi-level image, taking the first layer")
-        I = I[:, :, 0] # extract only the first channel if needed
-    if I0.ndim==3:
+        I = I[:, :, 0]  # extract only the first channel if needed
+    if I0.ndim == 3:
         if not (args.s):
             print("Initial intensity is a multi-level image, taking the first layer")
         I0 = I0[:, :, 0]
-    #normalize intensities
-    I = I/np.max(I)
-    I0 = I0/np.max(I0)
+    # apply gaussian profile
+    I0 = gaussian_profile(I0, 0.5)
+    I = gaussian_profile(I, 0.5)
+    # normalize intensities
+    I = I / np.max(I)
+    I0 = I0 / np.max(I0)
     h, w = I.shape
     h_0, w_0 = I0.shape
     if args.mask_sr:
@@ -234,30 +273,30 @@ def main():
             print("Error : Signal region size does not match target intensity size !")
             raise
 
-    if h!=h_0 and not(args.s):
+    if h != h_0 and not (args.s):
         print("Warning : Different target and initial intensity dimensions. Interpolation will be used")
-    if h!=w:
+    if h != w:
         if not (args.s):
             print("Non square target intensity specified. Target intensity will be extended with zeros to be square.")
-        L=max(h,w) #size of the square
-        tmp=np.zeros((L,L))
-        i=int(L/2-h/2)
-        j=int(L/2+h/2)
+        L = max(h, w)  # size of the square
+        tmp = np.zeros((L, L))
+        i = int(L / 2 - h / 2)
+        j = int(L / 2 + h / 2)
         k = int(L / 2 - w / 2)
         l = int(L / 2 + w / 2)
-        tmp[i:j,k:l]=I
-        I=tmp
-    if h_0!=w_0:
+        tmp[i:j, k:l] = I
+        I = tmp
+    if h_0 != w_0:
         if not (args.s):
             print("Non square source intensity specified. Source intensity will be extended with zeros to be square.")
-        L=max(h_0,w_0) #size of the square
-        tmp=np.zeros((L,L))
-        i=int(L/2-h_0/2)
-        j=int(L/2+h_0/2)
+        L = max(h_0, w_0)  # size of the square
+        tmp = np.zeros((L, L))
+        i = int(L / 2 - h_0 / 2)
+        j = int(L / 2 + h_0 / 2)
         k = int(L / 2 - w_0 / 2)
         l = int(L / 2 + w_0 / 2)
-        tmp[i:j,k:l]=I0
-        I0=tmp
+        tmp[i:j, k:l] = I0
+        I0 = tmp
     # refresh all sizes.
     h, w = I.shape
     h_0, w_0 = I0.shape
@@ -271,46 +310,48 @@ def main():
     else:
         phi0 = np.zeros((h_0, w_0))
     h_phi0, w_phi0 = phi0.shape
-    if h_phi0!=w_phi0:
+    if h_phi0 != w_phi0:
         if not (args.s):
             print("Non square source phase specified. Source phase will be extended with zeros to be square.")
-        L=max(h_phi0,w_phi0) #size of the square
-        tmp=np.zeros((L,L))
-        i=int(L/2-h_0/2)
-        j=int(L/2+h_0/2)
+        L = max(h_phi0, w_phi0)  # size of the square
+        tmp = np.zeros((L, L))
+        i = int(L / 2 - h_0 / 2)
+        j = int(L / 2 + h_0 / 2)
         k = int(L / 2 - w_0 / 2)
-        l = int(L / 2 + w_0 / 2 )
-        tmp[i:j,k:l]=phi0
-        phi0=tmp
-    if h_0!=h_phi0 and not(args.s):
+        l = int(L / 2 + w_0 / 2)
+        tmp[i:j, k:l] = phi0
+        phi0 = tmp
+    if h_0 != h_phi0 and not (args.s):
         print("Warning : Different initial phase and initial intensity dimensions. Interpolation will be used")
-    #refresh all sizes.
+    # refresh all sizes.
     h_phi0, w_phi0 = phi0.shape
-    #Conversion of the initial phase to rad
+    # Conversion of the initial phase to rad
     if args.phi0:
-        phi0 = ((SLM_levels/2)*np.ones(phi0.shape)-phi0) * (2 * np.pi / SLM_levels)
-    #if only one modulation step, do the regular computation
+        phi0 = ((SLM_levels / 2) * np.ones(phi0.shape) - phi0) * (2 * np.pi / SLM_levels)
+    # if only one modulation step, do the regular computation
     Phi, Mask = [], []
-    if N_mod ==1:
+    if N_mod == 1:
         # phase retrieval
-        if not(args.s):
+        if not (args.s):
             if args.mask_sr:
                 phi, mask_sr = phase_retrieval(I0, I, N_gs, False, threshold=mask_threshold, mask_sr=mask_sr, phi0=phi0)
-            else :
+            else:
                 phi, mask_sr = phase_retrieval(I0, I, N_gs, False, threshold=mask_threshold, phi0=phi0)
-        elif args.s :
+        elif args.s:
             if args.mask_sr:
-                phi, mask_sr = phase_retrieval(I0, I, N_gs, False, plot=False, threshold=mask_threshold, mask_sr=mask_sr, phi0=phi0)
-            else :
+                phi, mask_sr = phase_retrieval(I0, I, N_gs, False, plot=False, threshold=mask_threshold,
+                                               mask_sr=mask_sr, phi0=phi0)
+            else:
                 phi, mask_sr = phase_retrieval(I0, I, N_gs, False, plot=False, threshold=mask_threshold, phi0=phi0)
         Phi.append(phi)
         Mask.append(mask_sr)
-    else :
+    else:
         # phase retrieval (run in silent mode for better speed)
         T0 = time.time()
         for i in range(N_mod):
-            print(f"Modulation step {i+1} of {N_mod}")
+            print(f"Modulation step {i + 1} of {N_mod}")
             phi_m = phi0 + modulate(phi0, mod_intensity)
+            # phi_m = phi0 + (2*np.pi/N_mod)*np.ones((h_0, w_0))
             if args.mask_sr:
                 phi, mask_sr = phase_retrieval(I0, I, N_gs, False, plot=False, threshold=mask_threshold,
                                                mask_sr=mask_sr, phi0=phi_m)
@@ -318,89 +359,96 @@ def main():
                 phi, mask_sr = phase_retrieval(I0, I, N_gs, False, plot=False, threshold=mask_threshold, phi0=phi_m)
             Phi.append(phi)
             Mask.append(mask_sr)
-        T=time.time()-T0
+        T = time.time() - T0
         print(f"Modulation done. Time elapsed {T} s")
-    Phi=np.array(Phi)
+    Phi = np.array(Phi)
+    # save this array for later processing
+    np.save("Phi", Phi)
     Mask = np.array(Mask)
-    phi=np.mean(Phi, axis=0)
+    phi = np.mean(Phi, axis=0)
 
     # propagate the computed solution to image plane
-    N=I0.shape[0]
-    phi0_sr = np.ones((h_phi0,w_phi0)) #signal region
-    phi0_sr[np.where(I0==0)[0], np.where(I0==0)[1]]=0
-    phi0_sr[np.where(I0>0)[0], np.where(I0>0)[1]]=1
+    phi0_sr = np.ones((h_phi0, w_phi0))  # signal region
+    phi0_sr[np.where(I0 == 0)[0], np.where(I0 == 0)[1]] = 0
+    phi0_sr[np.where(I0 > 0)[0], np.where(I0 > 0)[1]] = 1
     rms_sr = np.ones((h, w))  # signal region
     rms_sr[np.where(I == 0)[0], np.where(I == 0)[1]] = 0
     rms_sr[np.where(I > 0)[0], np.where(I > 0)[1]] = 1
-    A = Begin(size, wavelength, N)
+    A = Begin(size, wavelength, h_0)
     A = SubIntensity(I0, A)
-    #A = SubPhase(phi+phi0, A) #add source beam phase
-    A = SubPhase(phi, A) #add source beam phase
+    # A = SubPhase(phi+phi0, A) #add source beam phase
+    A = SubPhase(phi, A)  # add source beam phase
     A = Forvard(z, A)
-    I_final = np.reshape(Intensity(0, A), (N, N))
-
-    #Compute RMS
-    RMS=np.sqrt(np.mean(rms_sr*(I-I_final)**2))
-    #Compute intensity conversion efficiency
-    conv_eff=np.sum(rms_sr*I)/np.sum(I0)
-    #compute correlation
-    corr=False
-    if corr and not(args.s):
-        print("Computing phase correlation")
-        T0=time()
-        Corr=np.corrcoef(phi0_sr*phi0, phi0_sr*Phi)
-        T1=time()-T0
-        print(f"Done ! It took me {T1} s. Mean correlation is {np.mean(Corr)}")
-    vmin=np.min(mask_sr*I)
-    vmax=np.max(mask_sr*I)
-
-    #save results
-    plt.imsave(f"{results_path}/I0.png",I0, vmin=vmin, vmax=vmax, cmap='gray')
-    plt.imsave(f"{results_path}/I.png",I, vmin=vmin, vmax=vmax, cmap='gray')
-    plt.imsave(f"{results_path}/I_final.png",I_final, vmin=vmin, vmax=vmax, cmap='gray')
-    plt.imsave(f"{results_path}/phi0.png",phi0, cmap='gray')
-    plt.imsave(f"{results_path}/phi.png",phi, cmap='gray')
-    f_rms=open(f"{results_path}/RMS_intensity.txt", "w+")
+    I_final = np.reshape(Intensity(0, A), (h_0, h_0))
+    phi_final = np.reshape(Phase(A), (h_0, h_0))
+    phi_final_cut = phi_final[int(h / 2), :]
+    print(phi_final_cut)
+    # Compute FT of reconstructed intensity.
+    I_tf = np.fft.fft2(I_final)
+    I_tf = np.abs(np.fft.fftshift(I_tf))
+    phi_tf = np.fft.fft2(phi)
+    phi_tf = np.abs(np.fft.fftshift(phi_tf))
+    freq = np.fft.fftfreq(h, d=size / h)
+    # Compute RMS
+    RMS = np.sqrt(np.mean(rms_sr * (I - I_final) ** 2))
+    # Compute intensity conversion efficiency
+    conv_eff = np.sum(rms_sr * I_final) / np.sum(I0)
+    vmin = np.min(mask_sr * I0)
+    vmax = np.max(mask_sr * I0)
+    # compute RMS
+    RMS = (1 / (np.max(I) - np.min(I))) * np.sqrt(np.mean(rms_sr * (I - I_final) ** 2))
+    # save results
+    plt.imsave(f"{results_path}/I0.png", I0, vmin=vmin, vmax=vmax, cmap='viridis')
+    plt.imsave(f"{results_path}/I.png", I, vmin=vmin, vmax=vmax, cmap='viridis')
+    plt.imsave(f"{results_path}/I_final.png", I_final, vmin=vmin, vmax=vmax, cmap='viridis')
+    plt.imsave(f"{results_path}/phi0.png", phi0, cmap='viridis')
+    plt.imsave(f"{results_path}/phi.png", phi, cmap='viridis')
+    f_rms = open(f"{results_path}/RMS_intensity.txt", "w+")
     f_rms.write(f"RMS for the intensity is : {RMS}")
     f_rms.close()
-    f_iconv=open(f"{results_path}/conv_eff.txt", "w+")
+    f_iconv = open(f"{results_path}/conv_eff.txt", "w+")
     f_iconv.write(f"Conversion efficiency in the signal region is : {conv_eff}")
     f_iconv.close()
     # Plot results : intensity and phase
-    #min and max intensities in the signal region for proper normalization
-    if not(args.s):
+    # min and max intensities in the signal region for proper normalization
+    if not (args.s):
         fig = plt.figure(0)
-        if corr:
-            ax1 = fig.add_subplot(131)
-            ax2 = fig.add_subplot(132)
-            ax3 = fig.add_subplot(133)
-            ax4 = fig.add_subplot(224)
-            divider4 = make_axes_locatable(ax4)
-            cax4 = divider4.append_axes('right', size='5%', pad=0.05)
-        else :
-            ax1 = fig.add_subplot(131)
-            ax2 = fig.add_subplot(132)
-            ax3 = fig.add_subplot(133)
+        ax1 = fig.add_subplot(231)
+        ax2 = fig.add_subplot(232)
+        ax3 = fig.add_subplot(233)
+        ax4 = fig.add_subplot(234)
+        ax5 = fig.add_subplot(235)
         divider1 = make_axes_locatable(ax1)
         cax1 = divider1.append_axes('right', size='5%', pad=0.05)
         divider2 = make_axes_locatable(ax2)
         cax2 = divider2.append_axes('right', size='5%', pad=0.05)
         divider3 = make_axes_locatable(ax3)
         cax3 = divider3.append_axes('right', size='5%', pad=0.05)
-        im1=ax1.imshow(phi, cmap="gray", vmin=-np.pi, vmax=np.pi)
+        divider4 = make_axes_locatable(ax4)
+        cax4 = divider4.append_axes('right', size='5%', pad=0.05)
+        im1 = ax1.imshow(phi, cmap="viridis", vmin=-np.pi, vmax=np.pi)
         ax1.set_title(f"Mean reconstructed phase")
-        fig.colorbar(im1, cax = cax1)
-        im2=ax2.imshow(I, cmap="gray", vmin=vmin, vmax=vmax)
+        fig.colorbar(im1, cax=cax1)
+        im2 = ax2.imshow(I, cmap="viridis", vmin=vmin, vmax=vmax)
         ax2.set_title("Target intensity")
-        fig.colorbar(im2, cax = cax2)
-        im3=ax3.imshow(I_final, cmap="gray", vmin=vmin, vmax=vmax)
-        ax3.text(8, 18, f"RMS = {round(RMS, ndigits=3)}", bbox={'facecolor': 'white', 'pad': 3})
+        fig.colorbar(im2, cax=cax2)
+        im3 = ax3.imshow(I_final, cmap="viridis", vmin=vmin, vmax=vmax)
+        ax3.text(8, 18, f"RMS = {round(RMS, ndigits=3)} CONV = {round(conv_eff, ndigits=3)}",
+                 bbox={'facecolor': 'white', 'pad': 3})
         ax3.set_title("Propagated intensity (with mean recontructed phase)")
-        fig.colorbar(im3, cax = cax3)
-        if corr:
-            im4=ax4.imshow(Corr, cmap="gray")
-            ax4.set_title("Correlation between target phase and reconstructed phase")
-            fig.colorbar(im4, cax = cax4)
+        fig.colorbar(im3, cax=cax3)
+        # extent=[min(freq), max(freq), min(freq), max(freq)]
+        # im4 = ax4.imshow(phi_tf, cmap="viridis", extent=extent)
+        im4 = ax4.imshow(phi_final, cmap="viridis")
+        ax4.set_title("Phase after propagation")
+        fig.colorbar(im4, cax=cax4)
+        X = np.linspace(0, h - 1, h)
+        ax5.plot(X, phi_final_cut)
+        ax5.set_title("Phase after propagation")
+        ax5.set_xlabel("Horizontal index")
+        ax5.set_ylabel("Phase in rad")
         plt.show()
+
+
 if __name__ == "__main__":
-	main()
+    main()
