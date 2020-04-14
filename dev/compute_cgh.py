@@ -368,13 +368,17 @@ def main():
     rms_sr = np.ones((h, w))  # signal region
     rms_sr[np.where(I == 0)[0], np.where(I == 0)[1]] = 0
     rms_sr[np.where(I > 0)[0], np.where(I > 0)[1]] = 1
+    plt.imshow(rms_sr)
+    plt.show()
     A = Begin(size, wavelength, h_0)
     A = SubIntensity(I0, A)
     #A = SubPhase(phi+phi0, A) #add source beam phase
     A = SubPhase(phi, A) #add source beam phase
     A = Forvard(z, A)
     I_final = np.reshape(Intensity(0, A), (h_0, h_0))
-    phi_final = np.reshape(Intensity(0, A), (h_0, h_0))
+    phi_final = np.reshape(Phase(A), (h_0, h_0))
+    phi_final_cut = phi_final[int(h/2),:]
+    print(phi_final_cut)
     #Compute FT of reconstructed intensity.
     I_tf = np.fft.fft2(I_final)
     I_tf = np.abs(np.fft.fftshift(I_tf))
@@ -388,7 +392,7 @@ def main():
     vmin=np.min(mask_sr*I0)
     vmax=np.max(mask_sr*I0)
     #compute RMS
-    RMS=(1/(np.max(I)-np.min(I)))*np.sqrt(np.mean(phi0_sr*(I-I_final)**2))
+    RMS=(1/(np.max(I)-np.min(I)))*np.sqrt(np.mean(rms_sr*(I-I_final)**2))
     #save results
     plt.imsave(f"{results_path}/I0.png",I0, vmin=vmin, vmax=vmax, cmap='viridis')
     plt.imsave(f"{results_path}/I.png",I, vmin=vmin, vmax=vmax, cmap='viridis')
@@ -405,18 +409,19 @@ def main():
     #min and max intensities in the signal region for proper normalization
     if not(args.s):
         fig = plt.figure(0)
-        ax1 = fig.add_subplot(221)
-        ax2 = fig.add_subplot(222)
-        ax3 = fig.add_subplot(223)
-        ax4 = fig.add_subplot(224, projection='3d')
+        ax1 = fig.add_subplot(231)
+        ax2 = fig.add_subplot(232)
+        ax3 = fig.add_subplot(233)
+        ax4 = fig.add_subplot(234)
+        ax5 = fig.add_subplot(235)
         divider1 = make_axes_locatable(ax1)
         cax1 = divider1.append_axes('right', size='5%', pad=0.05)
         divider2 = make_axes_locatable(ax2)
         cax2 = divider2.append_axes('right', size='5%', pad=0.05)
         divider3 = make_axes_locatable(ax3)
         cax3 = divider3.append_axes('right', size='5%', pad=0.05)
-        #divider4 = make_axes_locatable(ax4)
-        #cax4 = divider4.append_axes('bottom', size='5%', pad=0.05)
+        divider4 = make_axes_locatable(ax4)
+        cax4 = divider4.append_axes('right', size='5%', pad=0.05)
         im1=ax1.imshow(phi, cmap="viridis", vmin=-np.pi, vmax=np.pi)
         ax1.set_title(f"Mean reconstructed phase")
         fig.colorbar(im1, cax = cax1)
@@ -427,15 +432,16 @@ def main():
         ax3.text(8, 18, f"RMS = {round(RMS, ndigits=3)} CONV = {round(conv_eff, ndigits=3)}", bbox={'facecolor': 'white', 'pad': 3})
         ax3.set_title("Propagated intensity (with mean recontructed phase)")
         fig.colorbar(im3, cax = cax3)
-        extent=[min(freq), max(freq), min(freq), max(freq)]
+        #extent=[min(freq), max(freq), min(freq), max(freq)]
         #im4 = ax4.imshow(phi_tf, cmap="viridis", extent=extent)
-        #im4 = ax4.imshow(phi_final, cmap="viridis")
-        X=np.linspace(0,h-1, h)
-        Y=np.linspace(0,h-1, h)
-        X, Y = np.meshgrid(X,Y)
-        im4 = ax4.plot_surface(X, Y, phi_final, cmap='viridis')
+        im4 = ax4.imshow(phi_final, cmap="viridis")
         ax4.set_title("Phase after propagation")
-        #fig.colorbar(im4, cax=cax4)
+        fig.colorbar(im4, cax=cax4)
+        X = np.linspace(0, h-1, h)
+        ax5.plot(X, phi_final_cut)
+        ax5.set_title("Phase after propagation")
+        ax5.set_xlabel("Horizontal index")
+        ax5.set_ylabel("Phase in rad")
         plt.show()
 if __name__ == "__main__":
 	main()
