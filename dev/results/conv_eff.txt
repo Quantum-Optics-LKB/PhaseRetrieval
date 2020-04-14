@@ -1,1 +1,1 @@
-Conversion efficiency in the signal region is : 0.5463727678571428
+Conversion efficiency in the signal region is : 0.9897352121721865

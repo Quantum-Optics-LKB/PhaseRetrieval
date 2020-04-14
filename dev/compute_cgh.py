@@ -32,6 +32,7 @@ parser.add_argument("-mask_sr", help="Path to signal region mask", type=str)
 parser.add_argument("-output", help='Path to results folder', type=str)
 parser.add_argument("-s", help='Program runs silent without plots', action='store_true')
 args = parser.parse_args()
+
 #progress bar
 def update_progress(progress):
     barLength = 20 # Modify this to change the length of the progress bar
@@ -87,6 +88,10 @@ def main():
         signal_f = Interpol(size, h, 0, 0, 0, 1, signal_f)
         # Retrieve propagated intensity
         I_f = np.reshape(Intensity(1, signal_f), (h, w))
+        #compute FT
+        I_tf = np.fft.fft2(I_f)
+        I_tf = np.abs(np.fft.fftshift(I_tf))
+        freq = np.fft.fftfreq(h, d=size / h)
         # if no masks are specified, the function defines one
         if "mask_nr" not in kwargs:
             # detect outermost non zero target intensity point
@@ -112,15 +117,22 @@ def main():
                 mask_sr[j_min:j_max, j_min:j_max] = 1
             if plot:
                 fig = plt.figure(0)
-                ax1 = fig.add_subplot(121)
-                ax2 = fig.add_subplot(122)
-                ax1.imshow(I_f, cmap="gray")
+                ax1 = fig.add_subplot(131)
+                ax2 = fig.add_subplot(132)
+                ax3 = fig.add_subplot(133)
+                divider3 = make_axes_locatable(ax3)
+                cax3 = divider3.append_axes('right', size='5%', pad=0.05)
+                ax1.imshow(I_f, cmap="viridis")
                 ax1.set_title("Source intensity and phase at z")
-                ax2.imshow(mask_sr, cmap="gray")
+                ax2.imshow(mask_sr, cmap="viridis")
                 ax2.set_title(f"Signal region (Threshold = {threshold})")
                 scat = ax2.scatter(non_zero[0][R_max], non_zero[1][R_max], color='r')
                 scat.set_label('Threshold point')
-                plt.legend()
+                ax2.legend()
+                extent = [min(freq), max(freq), min(freq), max(freq)]
+                im3 = ax3.imshow(I_tf, cmap="viridis", extent=extent)
+                ax3.set_title("Fourier transform of propagated intensity")
+                fig.colorbar(im3, cax=cax3)
                 plt.show()
         else:
             mask_sr = kwargs["mask_sr"]
@@ -173,6 +185,24 @@ def main():
         phi_m = interpolation.zoom(M, phi.shape[0] / h)
         phi_m = phi_m * np.pi  # bring phase between [-pi.pi]
         return phi_m
+    def gaussian_profile(I: np.ndarray, sigma: float):
+        """
+        
+        :param I: Intensity to which a gaussian profile is going to be applied
+        :param sigma: Standard deviation of the gaussian profile, in fraction of the provided intensity size
+        :return: I_gauss : the "gaussianized" intensity
+        """
+        h, w = I.shape
+        #define a radial position matrix
+        R = np.zeros((h,w))
+        for i in range(h):
+            for j in range(w):
+                R[i,j]=np.sqrt((h/2 - i)**2 + (w/2 - j)**2)
+        sig=sigma*max(h,w)
+        G=np.exp(-R**2/(2*sig**2))
+        I_gauss = I*G
+        return I_gauss
+
     #get current working directory
     cwd_path=os.getcwd()
     if args.output :
@@ -218,6 +248,9 @@ def main():
         if not (args.s):
             print("Initial intensity is a multi-level image, taking the first layer")
         I0 = I0[:, :, 0]
+    #apply gaussian profile
+    I0=gaussian_profile(I0, 0.5)
+    I=gaussian_profile(I, 0.5)
     #normalize intensities
     I = I/np.max(I)
     I0 = I0/np.max(I0)
@@ -310,8 +343,8 @@ def main():
         T0 = time.time()
         for i in range(N_mod):
             print(f"Modulation step {i+1} of {N_mod}")
-            #phi_m = phi0 + modulate(phi0, mod_intensity)
-            phi_m = phi0 + (2*np.pi/N_mod)*np.ones((h_0, w_0))
+            phi_m = phi0 + modulate(phi0, mod_intensity)
+            #phi_m = phi0 + (2*np.pi/N_mod)*np.ones((h_0, w_0))
             if args.mask_sr:
                 phi, mask_sr = phase_retrieval(I0, I, N_gs, False, plot=False, threshold=mask_threshold,
                                                mask_sr=mask_sr, phi0=phi_m)
@@ -341,29 +374,26 @@ def main():
     A = SubPhase(phi, A) #add source beam phase
     A = Forvard(z, A)
     I_final = np.reshape(Intensity(0, A), (N, N))
-
+    #Compute FT of reconstructed intensity.
+    I_tf = np.fft.fft2(I_final)
+    I_tf = np.abs(np.fft.fftshift(I_tf))
+    phi_tf = np.fft.fft2(phi)
+    phi_tf = np.abs(np.fft.fftshift(phi_tf))
+    freq = np.fft.fftfreq(h, d=size/h)
     #Compute RMS
     RMS=np.sqrt(np.mean(rms_sr*(I-I_final)**2))
     # Compute intensity conversion efficiency
-    conv_eff = np.sum(rms_sr * I) / np.sum(I0)
-    #compute correlation
-    corr=False
-    if corr and not(args.s):
-        print("Computing phase correlation")
-        T0=time()
-        Corr=np.corrcoef(phi0_sr*phi0, phi0_sr*Phi)
-        T1=time()-T0
-        print(f"Done ! It took me {T1} s. Mean correlation is {np.mean(Corr)}")
-    vmin=np.min(mask_sr*I)
-    vmax=np.max(mask_sr*I)
+    conv_eff = np.sum(rms_sr * I_final) / np.sum(I0)
+    vmin=np.min(mask_sr*I0)
+    vmax=np.max(mask_sr*I0)
     #compute RMS
     RMS=(1/(np.max(I)-np.min(I)))*np.sqrt(np.mean(phi0_sr*(I-I_final)**2))
     #save results
-    plt.imsave(f"{results_path}/I0.png",I0, vmin=vmin, vmax=vmax, cmap='gray')
-    plt.imsave(f"{results_path}/I.png",I, vmin=vmin, vmax=vmax, cmap='gray')
-    plt.imsave(f"{results_path}/I_final.png",I_final, vmin=vmin, vmax=vmax, cmap='gray')
-    plt.imsave(f"{results_path}/phi0.png",phi0, cmap='gray')
-    plt.imsave(f"{results_path}/phi.png",phi, cmap='gray')
+    plt.imsave(f"{results_path}/I0.png",I0, vmin=vmin, vmax=vmax, cmap='viridis')
+    plt.imsave(f"{results_path}/I.png",I, vmin=vmin, vmax=vmax, cmap='viridis')
+    plt.imsave(f"{results_path}/I_final.png",I_final, vmin=vmin, vmax=vmax, cmap='viridis')
+    plt.imsave(f"{results_path}/phi0.png",phi0, cmap='viridis')
+    plt.imsave(f"{results_path}/phi.png",phi, cmap='viridis')
     f_rms=open(f"{results_path}/RMS_intensity.txt", "w+")
     f_rms.write(f"RMS for the intensity is : {RMS}")
     f_rms.close()
@@ -374,37 +404,32 @@ def main():
     #min and max intensities in the signal region for proper normalization
     if not(args.s):
         fig = plt.figure(0)
-        if corr:
-            ax1 = fig.add_subplot(131)
-            ax2 = fig.add_subplot(132)
-            ax3 = fig.add_subplot(133)
-            ax4 = fig.add_subplot(224)
-            divider4 = make_axes_locatable(ax4)
-            cax4 = divider4.append_axes('right', size='5%', pad=0.05)
-        else :
-            ax1 = fig.add_subplot(131)
-            ax2 = fig.add_subplot(132)
-            ax3 = fig.add_subplot(133)
+        ax1 = fig.add_subplot(221)
+        ax2 = fig.add_subplot(222)
+        ax3 = fig.add_subplot(223)
+        ax4 = fig.add_subplot(224)
         divider1 = make_axes_locatable(ax1)
         cax1 = divider1.append_axes('right', size='5%', pad=0.05)
         divider2 = make_axes_locatable(ax2)
         cax2 = divider2.append_axes('right', size='5%', pad=0.05)
         divider3 = make_axes_locatable(ax3)
         cax3 = divider3.append_axes('right', size='5%', pad=0.05)
-        im1=ax1.imshow(phi, cmap="gray", vmin=-np.pi, vmax=np.pi)
+        divider4 = make_axes_locatable(ax4)
+        cax4 = divider4.append_axes('right', size='5%', pad=0.05)
+        im1=ax1.imshow(phi, cmap="viridis", vmin=-np.pi, vmax=np.pi)
         ax1.set_title(f"Mean reconstructed phase")
         fig.colorbar(im1, cax = cax1)
-        im2=ax2.imshow(I, cmap="gray", vmin=vmin, vmax=vmax)
+        im2=ax2.imshow(I, cmap="viridis", vmin=vmin, vmax=vmax)
         ax2.set_title("Target intensity")
         fig.colorbar(im2, cax = cax2)
-        im3=ax3.imshow(I_final, cmap="gray", vmin=vmin, vmax=vmax)
+        im3=ax3.imshow(I_final, cmap="viridis", vmin=vmin, vmax=vmax)
         ax3.text(8, 18, f"RMS = {round(RMS, ndigits=3)} CONV = {round(conv_eff, ndigits=3)}", bbox={'facecolor': 'white', 'pad': 3})
         ax3.set_title("Propagated intensity (with mean recontructed phase)")
         fig.colorbar(im3, cax = cax3)
-        if corr:
-            im4=ax4.imshow(Corr, cmap="gray")
-            ax4.set_title("Correlation between target phase and reconstructed phase")
-            fig.colorbar(im4, cax = cax4)
+        extent=[min(freq), max(freq), min(freq), max(freq)]
+        im4 = ax4.imshow(phi_tf, cmap="viridis", extent=extent)
+        ax4.set_title("Fourier transform of retrieved phase")
+        fig.colorbar(im4, cax=cax4)
         plt.show()
 if __name__ == "__main__":
 	main()
