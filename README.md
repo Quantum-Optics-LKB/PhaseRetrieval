@@ -58,7 +58,10 @@ L1 = {'Name' : 'L1', 'Type' : 'Lens','Attributes' : 10e-2, 'distance' : 10e-2}
 L2 = {'Name' : 'L2', 'Type' : 'Lens','Attributes' : 20e-2, 'distance' : 20e-2}
 
 ```
-For now the optical setup is not yet functionnal : the algo assumes a free space propagation from the SLM to the image plane. 
+
+**For sampling reasons, the optimal propagation distance is between z and 4z where z = N dx^2 / lambda (where dx is the SLM pixel pitch**
+
+For now the optical setup is not yet functionnal : the algo assumes a free space propagation from the SLM to the image plane.
 
 There are 5 optional arguments:
 * `-h` : Print the help string and exit
