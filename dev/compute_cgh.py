@@ -163,7 +163,7 @@ def main():
             signal_f = Forvard(z, signal_s)  # Propagate to the far field
             # interpolate to target size
             signal_f = Interpol(size, h, 0, 0, 0, 1, signal_f)
-            I_f_old = np.reshape(Intensity(0, signal_f), (h,w))  # retrieve far field intensity
+            I_f_old = np.reshape(Intensity(1, signal_f), (h,w))  # retrieve far field intensity
             #if adaptative mask option, update the mask
             if kwargs["mask_sr"]=='adaptative':
                 mask_sr = define_mask(mask_sr*I_f_old, threshold, False) #no plots
@@ -385,13 +385,13 @@ def main():
     # signal region for the RMS
     rms_sr = np.ones((h, w))
     rms_sr[np.where(I == 0)[0], np.where(I == 0)[1]] = 0
-    rms_sr[np.where(I > 0)[0], np.where(I > 0)[1]] = 1
+    rms_sr[np.where(I > mask_threshold)[0], np.where(I > mask_threshold)[1]] = 1
     A = Begin(size, wavelength, h_0)
     A = SubIntensity(I0, A)
     #A = SubPhase(phi+phi0, A) #add source beam phase
     A = SubPhase(phi, A) #add source beam phase
     A = Forvard(z, A)
-    I_final = np.reshape(Intensity(0, A), (h_0, h_0))
+    I_final = np.reshape(Intensity(1, A), (h_0, h_0))
     phi_final = np.reshape(Phase(A), (h_0, h_0))
     phi_final_cut = phi_final[int(h/2),:]
     #Compute FT of reconstructed intensity.
