@@ -58,7 +58,10 @@ L1 = {'Name' : 'L1', 'Type' : 'Lens','Attributes' : 10e-2, 'distance' : 10e-2}
 L2 = {'Name' : 'L2', 'Type' : 'Lens','Attributes' : 20e-2, 'distance' : 20e-2}
 
 ```
-For now the optical setup is not yet functionnal : the algo assumes a free space propagation from the SLM to the image plane. 
+
+**For sampling reasons, the optimal propagation distance is between z and 4z where z = N dx^2 / lambda (where dx is the SLM pixel pitch**
+
+For now the optical setup is not yet functionnal : the algo assumes a free space propagation from the SLM to the image plane.
 
 There are 5 optional arguments:
 * `-h` : Print the help string and exit
@@ -68,6 +71,8 @@ There are 5 optional arguments:
 * `-s` : Silent option. If provided the program does not plot anything and just prompts progress
 
 **The programm understands both absolute and relative paths but it is simplest to put the images you are going to use in the same folder as `compute_cgh.py`**
+
+For Fourier computations reasons, the images must contain a "border" of zero to avoid meeting the reflective boundaries. If the provided images do not contain such a border, they will be padded up to twice their size.
 
 The programm then outputs the results in a folder named "results_{time}" where time is the time at which the code ran. If an `-output` path was specified, the results will be written here. The code outputs `I`, `I0` (as PNG) and the calculated phase map / intensity map (as PNG). It also outputs a file named `rms_intensity.txt` which contains the RMS between the target image and propagated intensity map.
 
@@ -87,7 +92,7 @@ After closing the plot, it will then run until it plots the final results like s
 ![plot_result](/images/plot_result.png)
 
 Note that the RMS between the reconstructed intensity and the target intensity is displayed in the top left corner.
-The `harambe` folder should now contain a subfolder named `results` with the images saved as PNG.
+The `harambe` folder should now contain a subfolder named `results` with the images saved as PNG. The code also computes the intensity conversion efficiency. 
 
 
 **CONTRIBUTION**
