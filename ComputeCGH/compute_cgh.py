@@ -28,7 +28,8 @@ parser.add_argument("I", help="Path to target intensity", type=str)
 parser.add_argument("I0", help="Path to source intensity", type=str)
 parser.add_argument("cfg", help="Path to config file", type=str)
 parser.add_argument("-phi0", help="Path to source phase profile", type=str)
-parser.add_argument("-mask_sr", help="Path to signal region mask", type=str)
+parser.add_argument("-mask_sr", help="Path to signal region mask. Can also be 'adaptative' for an automatic mask at \
+                                 each iteration", type=str)
 parser.add_argument("-output", help='Path to results folder', type=str)
 parser.add_argument("-s", help='Program runs silent without plots', action='store_true')
 args = parser.parse_args()
@@ -57,6 +58,63 @@ def update_progress(progress):
 
 
 def main():
+    def define_mask(I: np.ndarray, threshold: float, plot: bool):
+        """
+        A function to define the signal region automatically from the provided intensity and threshold
+        :param I: intensity from which to define a signal region
+        :param threshold: intensities below threshold are discarded
+        :param plot: Plot or not the defined mask
+        :return: mask_sr the defined mask
+        """
+        h, w = I.shape
+        # compute FT
+        I_tf = np.fft.fft2(I)
+        I_tf = np.abs(np.fft.fftshift(I_tf))
+        freq = np.fft.fftfreq(h, d=size / h)
+        mask_sr = np.zeros((h, w))
+        # detect outermost non zero target intensity point
+        non_zero = np.array(np.where(I > threshold))
+        non_zero_offset = np.zeros(non_zero.shape)
+        # offset relative to center
+        non_zero_offset[0] = non_zero[0] - (h / 2) * np.ones(len(non_zero[0]))
+        non_zero_offset[1] = non_zero[1] - (w / 2) * np.ones(len(non_zero[1]))
+        # Determine radii of each non-zero point
+        R_non_zero = np.sqrt(non_zero_offset[0] ** 2 + non_zero_offset[1] ** 2)
+        R_max = np.where(R_non_zero == np.max(abs(R_non_zero)))[0][
+            0]
+        # if there are several equally far points, it takes the
+        # first one
+        i_max, j_max = int(h / 2 + int(abs(non_zero_offset[0][R_max]))), int(
+            w / 2 + int(abs(non_zero_offset[1][R_max])))
+        i_min, j_min = int(h / 2 - int(abs(non_zero_offset[0][R_max]))), int(
+            w / 2 - int(abs(non_zero_offset[1][R_max])))
+        delta_i = int(i_max - i_min)
+        delta_j = int(j_max - j_min)
+        if delta_i > delta_j:
+            mask_sr[i_min:i_max, i_min:i_max] = 1
+        else:
+            mask_sr[j_min:j_max, j_min:j_max] = 1
+        if plot:
+            fig = plt.figure(0)
+            ax1 = fig.add_subplot(131)
+            ax2 = fig.add_subplot(132)
+            ax3 = fig.add_subplot(133)
+            divider3 = make_axes_locatable(ax3)
+            cax3 = divider3.append_axes('right', size='5%', pad=0.05)
+            ax1.imshow(I, cmap="viridis")
+            ax1.set_title("Source intensity and phase at z")
+            ax2.imshow(mask_sr, cmap="viridis")
+            ax2.set_title(f"Signal region (Threshold = {threshold})")
+            scat = ax2.scatter(non_zero[0][R_max], non_zero[1][R_max], color='r')
+            scat.set_label('Threshold point')
+            ax2.legend()
+            extent = [min(freq), max(freq), min(freq), max(freq)]
+            im3 = ax3.imshow(I_tf, cmap="viridis", extent=extent)
+            ax3.set_title("Fourier transform of propagated intensity")
+            fig.colorbar(im3, cax=cax3)
+            plt.show()
+        return mask_sr
+
     def phase_retrieval(I0: np.ndarray, I: np.ndarray, k: int, unwrap: bool = False, plot: bool = True,
                         threshold: float = 1e-2, **kwargs):
         """
@@ -68,7 +126,6 @@ def main():
         :param unwrap : Phase unwrapping at the end
         :param threshold : Threshold for automatic mask float in [0,1] default is 1e-2
         :param **mask_sr : Signal region  np.ndarray
-        :param **mask_nr : Noise region  np.ndarray
         :param **phi0 : Initial phase of the source np.ndarray
         :return phi: The calculated phase map using Gerchberg-Saxton algorithm
         """
@@ -90,52 +147,11 @@ def main():
         signal_f = Interpol(size, h, 0, 0, 0, 1, signal_f)
         # Retrieve propagated intensity
         I_f = np.reshape(Intensity(1, signal_f), (h, w))
-        # compute FT
-        I_tf = np.fft.fft2(I_f)
-        I_tf = np.abs(np.fft.fftshift(I_tf))
-        freq = np.fft.fftfreq(h, d=size / h)
         # if no masks are specified, the function defines one
-        if "mask_nr" not in kwargs:
-            # detect outermost non zero target intensity point
-            non_zero = np.array(np.where(I_f > threshold))
-            non_zero_offset = np.zeros(non_zero.shape)
-            # offset relative to center
-            non_zero_offset[0] = non_zero[0] - (h / 2) * np.ones(len(non_zero[0]))
-            non_zero_offset[1] = non_zero[1] - (w / 2) * np.ones(len(non_zero[1]))
-            # Determine radii of each non-zero point
-            R_non_zero = np.sqrt(non_zero_offset[0] ** 2 + non_zero_offset[1] ** 2)
-            R_max = np.where(R_non_zero == np.max(abs(R_non_zero)))[0][
-                0]  # if there are several equally far points, it takes the
-            # first one
-            i_max, j_max = int(h / 2 + int(abs(non_zero_offset[0][R_max]))), int(
-                w / 2 + int(abs(non_zero_offset[1][R_max])))
-            i_min, j_min = int(h / 2 - int(abs(non_zero_offset[0][R_max]))), int(
-                w / 2 - int(abs(non_zero_offset[1][R_max])))
-            delta_i = int(i_max - i_min)
-            delta_j = int(j_max - j_min)
-            if delta_i > delta_j:
-                mask_sr[i_min:i_max, i_min:i_max] = 1
-            else:
-                mask_sr[j_min:j_max, j_min:j_max] = 1
-            if plot:
-                fig = plt.figure(0)
-                ax1 = fig.add_subplot(131)
-                ax2 = fig.add_subplot(132)
-                ax3 = fig.add_subplot(133)
-                divider3 = make_axes_locatable(ax3)
-                cax3 = divider3.append_axes('right', size='5%', pad=0.05)
-                ax1.imshow(I_f, cmap="viridis")
-                ax1.set_title("Source intensity and phase at z")
-                ax2.imshow(mask_sr, cmap="viridis")
-                ax2.set_title(f"Signal region (Threshold = {threshold})")
-                scat = ax2.scatter(non_zero[0][R_max], non_zero[1][R_max], color='r')
-                scat.set_label('Threshold point')
-                ax2.legend()
-                extent = [min(freq), max(freq), min(freq), max(freq)]
-                im3 = ax3.imshow(I_tf, cmap="viridis", extent=extent)
-                ax3.set_title("Fourier transform of propagated intensity")
-                fig.colorbar(im3, cax=cax3)
-                plt.show()
+        if "mask_sr" not in kwargs:
+            mask_sr = define_mask(I_f, threshold, plot)
+        elif kwargs["mask_sr"] == 'adaptative':
+            mask_sr = np.ones((h, w))
         else:
             mask_sr = kwargs["mask_sr"]
         mask_nr = np.ones(mask_sr.shape) - mask_sr
@@ -149,15 +165,16 @@ def main():
             signal_f = Forvard(z, signal_s)  # Propagate to the far field
             # interpolate to target size
             signal_f = Interpol(size, h, 0, 0, 0, 1, signal_f)
-            I_f_old = Intensity(0, signal_f)  # retrieve far field intensity
+            I_f_old = np.reshape(Intensity(1, signal_f), (h, w))  # retrieve far field intensity
+            # if adaptative mask option, update the mask
+            if "mask_sr" in kwargs and kwargs["mask_sr"] == 'adaptative':
+                mask_sr = define_mask(mask_sr * I_f_old, threshold, False)  # no plots
             signal_f = SubIntensity(I * mask_sr + I_f_old * mask_nr,
                                     signal_f)  # Substitute the measured far field into the field only in the signal region
             signal_s = Forvard(-z, signal_f)  # Propagate back to the near field
             # interpolate to source size
             signal_s = Interpol(size, h_0, 0, 0, 0, 1, signal_s)
             signal_s = SubIntensity(I0, signal_s)  # Substitute the measured near field into the field
-            # pm_s = np.reshape(Phase(signal_s), (h_0, w_0))
-            # signal_s = SubPhase(phi0+pm_s, signal_s) #add the source field phase
             T2 = time.time() - T1
             # if i % 10 == 0:
             #    progress=round(100 * (i / k), ndigits=3)
@@ -245,15 +262,18 @@ def main():
 
     # initiate  intensities, phase and mask
     I = np.asarray(Image.open(args.I))
-    I0 = np.asarray(Image.open(args.I0))
     if I.ndim == 3:
         if not (args.s):
             print("Target intensity is a multi-level image, taking the first layer")
         I = I[:, :, 0]  # extract only the first channel if needed
-    if I0.ndim == 3:
-        if not (args.s):
-            print("Initial intensity is a multi-level image, taking the first layer")
-        I0 = I0[:, :, 0]
+    if args.I0:
+        I0 = np.asarray(Image.open(args.I0))
+        if I0.ndim == 3:
+            if not (args.s):
+                print("Initial intensity is a multi-level image, taking the first layer")
+            I0 = I0[:, :, 0]
+    else:
+        I0 = np.ones(I.shape)
     # apply gaussian profile
     I0 = gaussian_profile(I0, 0.5)
     I = gaussian_profile(I, 0.5)
@@ -262,17 +282,6 @@ def main():
     I0 = I0 / np.max(I0)
     h, w = I.shape
     h_0, w_0 = I0.shape
-    if args.mask_sr:
-        mask_sr = np.asarray(Image.open(args.mask_sr))
-        if mask_sr.ndim == 3:
-            if not (args.s):
-                print("Signal region is a multi-level image, taking the first layer")
-            mask_sr = mask_sr[:, :, 0]
-            # check if signal region size matches the target intensity
-        if mask_sr.shape != I.shape:
-            print("Error : Signal region size does not match target intensity size !")
-            raise
-
     if h != h_0 and not (args.s):
         print("Warning : Different target and initial intensity dimensions. Interpolation will be used")
     if h != w:
@@ -297,9 +306,42 @@ def main():
         l = int(L / 2 + w_0 / 2)
         tmp[i:j, k:l] = I0
         I0 = tmp
+
+    # signal region for the RMS
+    rms_sr = np.ones((h, w))
+    rms_sr[np.where(I == 0)[0], np.where(I == 0)[1]] = 0
+    rms_sr[np.where(I > 0)[0], np.where(I > 0)[1]] = 1
+    # signal region for the initial intensity. Used only for auto padding.
+    rms0_sr = np.ones((h_0, w_0))
+    rms0_sr[np.where(I0 == 0)[0], np.where(I0 == 0)[1]] = 0
+    rms0_sr[np.where(I0 > 0)[0], np.where(I0 > 0)[1]] = 1
+    # compute if there is a pad of size h/4 h_0/4 around I / I0, if not pad the images up to twice their sizes
+    # The >0.025*h**2 means that if the number of non zero points in the border region is more than 10% of the total
+    # number of points in the border region, we consider that the border region is filled and so needs to be enlarged.
+    I_is_not_padded = np.sum(rms_sr[0:int(h / 4), :]) > (0.025 * h ** 2) or np.sum(rms_sr[:, 0:int(h / 4)]) > (
+            0.025 * h ** 2) or np.sum(rms_sr[int(3 * h / 4):h, :]) > (0.025 * h ** 2) \
+                      or np.sum(rms_sr[:, int(3 * h / 4):h]) > (0.025 * h ** 2)
+    I0_is_not_padded = np.sum(rms0_sr[0:int(h_0 / 4), :]) > (0.025 * h_0 ** 2) or np.sum(
+        rms0_sr[:, 0:int(h_0 / 4)]) > (
+                               0.025 * h_0 ** 2) or np.sum(rms0_sr[int(3 * h_0 / 4):h_0, :]) > (0.025 * h_0 ** 2) \
+                       or np.sum(rms0_sr[:, int(3 * h_0 / 4):h_0]) > (0.025 * h_0 ** 2)
+    if I_is_not_padded:
+        print("The target intensity is not padded. It will be padded to twice its size with zeros.")
+        tmp = np.zeros((2 * h, 2 * h))
+        tmp[int(2 * h / 4):int(3 * 2 * h / 4), int(2 * h / 4):int(3 * 2 * h / 4)] = I
+        I = tmp
+    if I0_is_not_padded:
+        print("The source intensity is not padded. It will be padded to twice its size with zeros.")
+        tmp = np.zeros((2 * h_0, 2 * h_0))
+        tmp[int(2 * h_0 / 4):int(3 * 2 * h_0 / 4), int(2 * h_0 / 4):int(3 * 2 * h_0 / 4)] = I0
+        I0 = tmp
     # refresh all sizes.
     h, w = I.shape
     h_0, w_0 = I0.shape
+    # refresh rms signal region
+    rms_sr = np.ones((h, w))
+    rms_sr[np.where(I == 0)[0], np.where(I == 0)[1]] = 0
+    rms_sr[np.where(I > 0)[0], np.where(I > 0)[1]] = 1
     # if the initial phase was supplied, assign it. If not flat wavefront.
     if args.phi0:
         phi0 = np.asarray(Image.open(args.phi0))
@@ -328,6 +370,26 @@ def main():
     # Conversion of the initial phase to rad
     if args.phi0:
         phi0 = ((SLM_levels / 2) * np.ones(phi0.shape) - phi0) * (2 * np.pi / SLM_levels)
+
+    # signal region for the phase
+    phi0_sr = np.ones((h_phi0, w_phi0))  # signal region
+    phi0_sr[np.where(I0 == 0)[0], np.where(I0 == 0)[1]] = 0
+    phi0_sr[np.where(I0 > 0)[0], np.where(I0 > 0)[1]] = 1
+
+    # define mask
+    if args.mask_sr and args.mask_sr != 'adaptative':
+        mask_sr = np.asarray(Image.open(args.mask_sr))
+        if mask_sr.ndim == 3:
+            if not (args.s):
+                print("Signal region is a multi-level image, taking the first layer")
+            mask_sr = mask_sr[:, :, 0]
+            # check if signal region size matches the target intensity
+        if mask_sr.shape != I.shape:
+            print("Error : Signal region size does not match target intensity size !")
+            raise
+    elif args.mask_sr == 'adaptative':
+        mask_sr = 'adaptative'
+
     # if only one modulation step, do the regular computation
     Phi, Mask = [], []
     if N_mod == 1:
@@ -368,21 +430,13 @@ def main():
     phi = np.mean(Phi, axis=0)
 
     # propagate the computed solution to image plane
-    phi0_sr = np.ones((h_phi0, w_phi0))  # signal region
-    phi0_sr[np.where(I0 == 0)[0], np.where(I0 == 0)[1]] = 0
-    phi0_sr[np.where(I0 > 0)[0], np.where(I0 > 0)[1]] = 1
-    rms_sr = np.ones((h, w))  # signal region
-    rms_sr[np.where(I == 0)[0], np.where(I == 0)[1]] = 0
-    rms_sr[np.where(I > 0)[0], np.where(I > 0)[1]] = 1
     A = Begin(size, wavelength, h_0)
     A = SubIntensity(I0, A)
-    # A = SubPhase(phi+phi0, A) #add source beam phase
-    A = SubPhase(phi, A)  # add source beam phase
+    A = SubPhase(phi, A)
     A = Forvard(z, A)
     I_final = np.reshape(Intensity(0, A), (h_0, h_0))
     phi_final = np.reshape(Phase(A), (h_0, h_0))
     phi_final_cut = phi_final[int(h / 2), :]
-    print(phi_final_cut)
     # Compute FT of reconstructed intensity.
     I_tf = np.fft.fft2(I_final)
     I_tf = np.abs(np.fft.fftshift(I_tf))
@@ -395,20 +449,25 @@ def main():
     conv_eff = np.sum(rms_sr * I_final) / np.sum(I0)
     vmin = np.min(mask_sr * I0)
     vmax = np.max(mask_sr * I0)
-    # compute RMS
-    RMS = (1 / (np.max(I) - np.min(I))) * np.sqrt(np.mean(rms_sr * (I - I_final) ** 2))
     # save results
     plt.imsave(f"{results_path}/I0.png", I0, vmin=vmin, vmax=vmax, cmap='viridis')
     plt.imsave(f"{results_path}/I.png", I, vmin=vmin, vmax=vmax, cmap='viridis')
     plt.imsave(f"{results_path}/I_final.png", I_final, vmin=vmin, vmax=vmax, cmap='viridis')
     plt.imsave(f"{results_path}/phi0.png", phi0, cmap='viridis')
     plt.imsave(f"{results_path}/phi.png", phi, cmap='viridis')
+    plt.imsave(f"{results_path}/phi_final.png", phi_final, cmap='viridis')
     f_rms = open(f"{results_path}/RMS_intensity.txt", "w+")
     f_rms.write(f"RMS for the intensity is : {RMS}")
     f_rms.close()
     f_iconv = open(f"{results_path}/conv_eff.txt", "w+")
     f_iconv.write(f"Conversion efficiency in the signal region is : {conv_eff}")
     f_iconv.close()
+    f_cfg = open(cfg_path)
+    config = f_cfg.read()
+    f_cfg.close()
+    f_cfg = open(f"{results_path}/config.conf", "w+")
+    f_cfg.write(config)
+    f_cfg.close()
     # Plot results : intensity and phase
     # min and max intensities in the signal region for proper normalization
     if not (args.s):
@@ -433,6 +492,7 @@ def main():
         ax2.set_title("Target intensity")
         fig.colorbar(im2, cax=cax2)
         im3 = ax3.imshow(I_final, cmap="viridis", vmin=vmin, vmax=vmax)
+        # ax3.imshow(np.ones(rms_sr.shape)-rms_sr,cmap='Greys', alpha=0.4) #grey over non signal region
         ax3.text(8, 18, f"RMS = {round(RMS, ndigits=3)} CONV = {round(conv_eff, ndigits=3)}",
                  bbox={'facecolor': 'white', 'pad': 3})
         ax3.set_title("Propagated intensity (with mean recontructed phase)")
