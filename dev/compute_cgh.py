@@ -276,18 +276,6 @@ def main():
     I0 = I0/np.max(I0)
     h, w = I.shape
     h_0, w_0 = I0.shape
-    if args.mask_sr and args.mask_sr!='adaptative':
-        mask_sr = np.asarray(Image.open(args.mask_sr))
-        if mask_sr.ndim == 3:
-            if not (args.s):
-                print("Signal region is a multi-level image, taking the first layer")
-            mask_sr = mask_sr[:, :, 0]
-            # check if signal region size matches the target intensity
-        if mask_sr.shape != I.shape:
-            print("Error : Signal region size does not match target intensity size !")
-            raise
-    elif args.mask_sr=='adaptative':
-        mask_sr='adaptative'
     if h!=h_0 and not(args.s):
         print("Warning : Different target and initial intensity dimensions. Interpolation will be used")
     if h!=w:
@@ -312,9 +300,42 @@ def main():
         l = int(L / 2 + w_0 / 2)
         tmp[i:j,k:l]=I0
         I0=tmp
+
+    # signal region for the RMS
+    rms_sr = np.ones((h, w))
+    rms_sr[np.where(I == 0)[0], np.where(I == 0)[1]] = 0
+    rms_sr[np.where(I > 0)[0], np.where(I > 0)[1]] = 1
+    # signal region for the initial intensity. Used only for auto padding.
+    rms0_sr = np.ones((h_0, w_0))
+    rms0_sr[np.where(I0 == 0)[0], np.where(I0 == 0)[1]] = 0
+    rms0_sr[np.where(I0 > 0)[0], np.where(I0 > 0)[1]] = 1
+    # compute if there is a pad of size h/4 h_0/4 around I / I0, if not pad the images up to twice their sizes
+    # The >0.025*h**2 means that if the number of non zero points in the border region is more than 10% of the total
+    # number of points in the border region, we consider that the border region is filled and so needs to be enlarged.
+    I_is_not_padded = np.sum(rms_sr[0:int(h / 4), :]) > (0.025 * h ** 2) or np.sum(rms_sr[:, 0:int(h / 4)]) > (
+                0.025 * h ** 2) or np.sum(rms_sr[int(3 * h / 4):h, :]) > (0.025 * h ** 2) \
+                      or np.sum(rms_sr[:, int(3 * h / 4):h]) > (0.025 * h ** 2)
+    I0_is_not_padded = np.sum(rms0_sr[0:int(h_0 / 4), :]) > (0.025 * h_0 ** 2) or np.sum(
+        rms0_sr[:, 0:int(h_0 / 4)]) > (
+                               0.025 * h_0 ** 2) or np.sum(rms0_sr[int(3 * h_0 / 4):h_0, :]) > (0.025 * h_0 ** 2) \
+                       or np.sum(rms0_sr[:, int(3 * h_0 / 4):h_0]) > (0.025 * h_0 ** 2)
+    if I_is_not_padded:
+        print("The target intensity is not padded. It will be padded to twice its size with zeros.")
+        tmp = np.zeros((2 * h, 2 * h))
+        tmp[int(2*h/4):int(3*2*h/4), int(2*h/4):int(3*2*h/4)]=I
+        I=tmp
+    if I0_is_not_padded:
+        print("The source intensity is not padded. It will be padded to twice its size with zeros.")
+        tmp = np.zeros((2 * h_0, 2 * h_0))
+        tmp[int(2*h_0 / 4):int(3 *2* h_0 / 4), int(2*h_0 / 4):int(3 *2* h_0 / 4)] = I0
+        I0 = tmp
     # refresh all sizes.
     h, w = I.shape
     h_0, w_0 = I0.shape
+    # refresh rms signal region
+    rms_sr = np.ones((h, w))
+    rms_sr[np.where(I == 0)[0], np.where(I == 0)[1]] = 0
+    rms_sr[np.where(I > 0)[0], np.where(I > 0)[1]] = 1
     # if the initial phase was supplied, assign it. If not flat wavefront.
     if args.phi0:
         phi0 = np.asarray(Image.open(args.phi0))
@@ -343,6 +364,27 @@ def main():
     #Conversion of the initial phase to rad
     if args.phi0:
         phi0 = ((SLM_levels/2)*np.ones(phi0.shape)-phi0) * (2 * np.pi / SLM_levels)
+
+    # signal region for the phase
+    phi0_sr = np.ones((h_phi0, w_phi0))  # signal region
+    phi0_sr[np.where(I0 == 0)[0], np.where(I0 == 0)[1]] = 0
+    phi0_sr[np.where(I0 > 0)[0], np.where(I0 > 0)[1]] = 1
+
+    #define mask
+    if args.mask_sr and args.mask_sr!='adaptative':
+        mask_sr = np.asarray(Image.open(args.mask_sr))
+        if mask_sr.ndim == 3:
+            if not (args.s):
+                print("Signal region is a multi-level image, taking the first layer")
+            mask_sr = mask_sr[:, :, 0]
+            # check if signal region size matches the target intensity
+        if mask_sr.shape != I.shape:
+            print("Error : Signal region size does not match target intensity size !")
+            raise
+    elif args.mask_sr=='adaptative':
+        mask_sr='adaptative'
+
+
     #if only one modulation step, do the regular computation
     Phi, Mask = [], []
     if N_mod ==1:
@@ -382,13 +424,6 @@ def main():
     phi=np.mean(Phi, axis=0)
 
     # propagate the computed solution to image plane
-    phi0_sr = np.ones((h_phi0,w_phi0)) #signal region
-    phi0_sr[np.where(I0==0)[0], np.where(I0==0)[1]]=0
-    phi0_sr[np.where(I0>0)[0], np.where(I0>0)[1]]=1
-    # signal region for the RMS
-    rms_sr = np.ones((h, w))
-    rms_sr[np.where(I == 0)[0], np.where(I == 0)[1]] = 0
-    rms_sr[np.where(I > mask_threshold)[0], np.where(I > mask_threshold)[1]] = 1
     A = Begin(size, wavelength, h_0)
     A = SubIntensity(I0, A)
     #A = SubPhase(phi-phi0, A) #add source beam phase
