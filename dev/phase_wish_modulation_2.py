@@ -9,20 +9,40 @@ from PIL import Image  # for custom phase / intensity masks
 from time import time
 from scipy.ndimage import interpolation
 from mpl_toolkits.axes_grid1 import make_axes_locatable
-
+import time
+import sys
 
 #size of the longest side of the source intensity
-size_SLM = 24.46e-3
-size = 24.46e-3
+size_SLM = 3.28e-3
+size = 3.28e-3
 wavelength = 532e-9
-z = 32e-2
+z = 8e-3
 N_gs = 200
 #modulation number 1 is disabled.
-N_mod = 1
+N_mod = 10
 mod_intensity=0.1
 SLM_levels = 256
 mask_threshold = 5e-2
 
+#progress bar
+def update_progress(progress):
+    barLength = 20 # Modify this to change the length of the progress bar
+    status = ""
+    if isinstance(progress, int):
+        progress = float(progress)
+    if not isinstance(progress, float):
+        progress = 0
+        status = "error: progress var must be float\r\n"
+    if progress < 0:
+        progress = 0
+        status = "Halt...\r\n"
+    if progress >= 1:
+        progress = 1
+        status = "Done...\r\n"
+    block = int(round(barLength*progress))
+    text = "\rProgress : [{0}] {1}% {2}".format( "#"*block + "-"*(barLength-block), round(progress*100, ndigits=1), status)
+    sys.stdout.write(text)
+    sys.stdout.flush()
 
 def define_mask(I: np.ndarray, threshold: float, plot: bool):
     """
@@ -197,13 +217,66 @@ def gaussian_profile(I: np.ndarray, sigma: float):
 # initiate custom phase and intensity filters emulating the SLM
 I0 = np.asarray(Image.open("intensities/I0_512_big.bmp"))[:, :, 0]  # extract only the first channel
 phi0 = np.asarray(Image.open("phases/calib_512_big.bmp"))
-I0=I0/np.max(I0)
+I0=gaussian_profile(I0,0.5)/np.max(I0)
 phi0=phi0/np.max(phi0)
+# signal region for the phase
+phi0_sr = np.ones(phi0.shape)  # signal region
+phi0_sr[np.where(I0 == 0)[0], np.where(I0 == 0)[1]] = 0
+phi0_sr[np.where(I0 > 0)[0], np.where(I0 > 0)[1]] = 1
 #conversion to rad
-phi0=np.pi*(phi0-0.5*np.ones(phi0.shape))
-#define target field
-A=Begin(size_SLM, wavelength, I0.shape[0])
-A=SubIntensity(I0, A)
-A=SubPhase(phi0, A)
-A=Forvard(z, A)
-I=np.reshape(Intensity(0, A), I0.shape)
+phi0=2*np.pi*(phi0-0.5*np.ones(phi0.shape))*phi0_sr
+Phi0=[]
+Phi=[]
+I_target=[]
+for k in range(int(N_mod/2)):
+    phi_m=(phi0+modulate(phi0, mod_intensity))%(2*np.pi)
+    Phi0.append(phi_m)
+    Phi0.append(-phi_m)
+Phi0=np.array(Phi0)
+n=1
+for phi_0 in Phi0:
+    print(f"Modulation step {n} out of {2*int(N_mod/2)}")
+    #define target field
+    A=Begin(size_SLM, wavelength, I0.shape[0])
+    A=SubIntensity(I0, A)
+    A=SubPhase(phi_0, A)
+    A=Forvard(z, A)
+    I=np.reshape(Intensity(0, A), I0.shape)
+    phi, mask=phase_retrieval(I0, I, N_gs, threshold=mask_threshold, plot=False)
+    Phi.append(phi)
+    I_target.append(I)
+    n+=1
+Phi=np.array(Phi)
+I_target=np.array(I_target)
+phi=np.mean(Phi, axis=0)
+I = np.mean(I_target, axis=0)
+#compute RMS
+RMS=(1/2*np.pi)*np.mean(np.sqrt(phi0_sr*(phi0-phi)**2))
+fig=plt.figure()
+ax1=fig.add_subplot(221)
+ax2=fig.add_subplot(222)
+ax3=fig.add_subplot(223)
+ax4=fig.add_subplot(224)
+divider1 = make_axes_locatable(ax1)
+cax1 = divider1.append_axes('right', size='5%', pad=0.05)
+divider2 = make_axes_locatable(ax2)
+cax2 = divider2.append_axes('right', size='5%', pad=0.05)
+divider3 = make_axes_locatable(ax3)
+cax3 = divider3.append_axes('right', size='5%', pad=0.05)
+divider4 = make_axes_locatable(ax4)
+cax4 = divider4.append_axes('right', size='5%', pad=0.05)
+im1 = ax1.imshow(I0,vmin=0,vmax=1)
+im2 = ax2.imshow(phi0,vmin=-np.pi,vmax=np.pi)
+im3 = ax3.imshow(I,vmin=0,vmax=1)
+im4 = ax4.imshow(phi,vmin=-np.pi,vmax=np.pi)
+ax1.set_title("Initial intensity")
+ax2.set_title("Initial phase")
+ax3.set_title("Mean propagated intensity")
+ax4.set_title("Mean retrieved phase")
+ax4.text(8, 18, f"RMS = {round(RMS, ndigits=3)}", bbox={'facecolor': 'white', 'pad': 3})
+fig.colorbar(im1, cax=cax1)
+fig.colorbar(im2, cax=cax2)
+fig.colorbar(im3, cax=cax3)
+fig.colorbar(im4, cax=cax4)
+plt.show()
+
