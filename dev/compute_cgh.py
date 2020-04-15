@@ -29,7 +29,8 @@ parser.add_argument("I", help="Path to target intensity", type=str)
 parser.add_argument("I0", help="Path to source intensity", type=str)
 parser.add_argument("cfg", help="Path to config file", type=str)
 parser.add_argument("-phi0", help="Path to source phase profile", type=str)
-parser.add_argument("-mask_sr", help="Path to signal region mask", type=str)
+parser.add_argument("-mask_sr", help="Path to signal region mask. Can also be 'adaptative' for an automatic mask at \
+                                 each iteration", type=str)
 parser.add_argument("-output", help='Path to results folder', type=str)
 parser.add_argument("-s", help='Program runs silent without plots', action='store_true')
 args = parser.parse_args()
@@ -145,8 +146,9 @@ def main():
         # Retrieve propagated intensity
         I_f = np.reshape(Intensity(1, signal_f), (h, w))
         # if no masks are specified, the function defines one
-        if "mask_nr" not in kwargs:
-            #mask_sr = define_mask(I_f, threshold, plot)
+        if "mask_sr" not in kwargs:
+            mask_sr = define_mask(I_f, threshold, plot)
+        elif kwargs["mask_sr"]=='adaptative':
             mask_sr = np.ones((h,w))
         else:
             mask_sr = kwargs["mask_sr"]
@@ -162,8 +164,8 @@ def main():
             # interpolate to target size
             signal_f = Interpol(size, h, 0, 0, 0, 1, signal_f)
             I_f_old = np.reshape(Intensity(0, signal_f), (h,w))  # retrieve far field intensity
-            #if no mask is specified, update the mask
-            if "mask_nr" not in kwargs:
+            #if adaptative mask option, update the mask
+            if kwargs["mask_sr"]=='adaptative':
                 mask_sr = define_mask(mask_sr*I_f_old, threshold, False) #no plots
             signal_f = SubIntensity(I * mask_sr + I_f_old * mask_nr,
                                     signal_f)  # Substitute the measured far field into the field only in the signal region
@@ -171,8 +173,6 @@ def main():
             # interpolate to source size
             signal_s = Interpol(size, h_0, 0, 0, 0, 1, signal_s)
             signal_s = SubIntensity(I0, signal_s)  # Substitute the measured near field into the field
-            #pm_s = np.reshape(Phase(signal_s), (h_0, w_0))
-            # signal_s = SubPhase(phi0+pm_s, signal_s) #add the source field phase
             T2 = time.time() - T1
             #if i % 10 == 0:
             #    progress=round(100 * (i / k), ndigits=3)
@@ -273,7 +273,7 @@ def main():
     I0 = I0/np.max(I0)
     h, w = I.shape
     h_0, w_0 = I0.shape
-    if args.mask_sr:
+    if args.mask_sr and args.mask_sr!='adaptative':
         mask_sr = np.asarray(Image.open(args.mask_sr))
         if mask_sr.ndim == 3:
             if not (args.s):
@@ -283,7 +283,8 @@ def main():
         if mask_sr.shape != I.shape:
             print("Error : Signal region size does not match target intensity size !")
             raise
-
+    elif args.mask_sr=='adaptative':
+        mask_sr='adaptative'
     if h!=h_0 and not(args.s):
         print("Warning : Different target and initial intensity dimensions. Interpolation will be used")
     if h!=w:
@@ -381,7 +382,8 @@ def main():
     phi0_sr = np.ones((h_phi0,w_phi0)) #signal region
     phi0_sr[np.where(I0==0)[0], np.where(I0==0)[1]]=0
     phi0_sr[np.where(I0>0)[0], np.where(I0>0)[1]]=1
-    rms_sr = np.ones((h, w))  # signal region
+    # signal region for the RMS
+    rms_sr = np.ones((h, w))
     rms_sr[np.where(I == 0)[0], np.where(I == 0)[1]] = 0
     rms_sr[np.where(I > 0)[0], np.where(I > 0)[1]] = 1
     A = Begin(size, wavelength, h_0)
@@ -404,20 +406,25 @@ def main():
     conv_eff = np.sum(rms_sr * I_final) / np.sum(I0)
     vmin=np.min(mask_sr*I0)
     vmax=np.max(mask_sr*I0)
-    #compute RMS
-    RMS=(1/(np.max(I)-np.min(I)))*np.sqrt(np.mean(rms_sr*(I-I_final)**2))
     #save results
     plt.imsave(f"{results_path}/I0.png",I0, vmin=vmin, vmax=vmax, cmap='viridis')
     plt.imsave(f"{results_path}/I.png",I, vmin=vmin, vmax=vmax, cmap='viridis')
     plt.imsave(f"{results_path}/I_final.png",I_final, vmin=vmin, vmax=vmax, cmap='viridis')
     plt.imsave(f"{results_path}/phi0.png",phi0, cmap='viridis')
     plt.imsave(f"{results_path}/phi.png",phi, cmap='viridis')
+    plt.imsave(f"{results_path}/phi_final.png",phi_final, cmap='viridis')
     f_rms=open(f"{results_path}/RMS_intensity.txt", "w+")
     f_rms.write(f"RMS for the intensity is : {RMS}")
     f_rms.close()
     f_iconv = open(f"{results_path}/conv_eff.txt", "w+")
     f_iconv.write(f"Conversion efficiency in the signal region is : {conv_eff}")
     f_iconv.close()
+    f_cfg = open(cfg_path)
+    config=f_cfg.read()
+    f_cfg.close()
+    f_cfg = open(f"{results_path}/config.conf", "w+")
+    f_cfg.write(config)
+    f_cfg.close()
     # Plot results : intensity and phase
     #min and max intensities in the signal region for proper normalization
     if not(args.s):
@@ -442,6 +449,7 @@ def main():
         ax2.set_title("Target intensity")
         fig.colorbar(im2, cax = cax2)
         im3=ax3.imshow(I_final, cmap="viridis", vmin=vmin, vmax=vmax)
+        ax3.imshow(np.ones(rms_sr.shape)-rms_sr,cmap='Greys', alpha=0.4)
         ax3.text(8, 18, f"RMS = {round(RMS, ndigits=3)} CONV = {round(conv_eff, ndigits=3)}", bbox={'facecolor': 'white', 'pad': 3})
         ax3.set_title("Propagated intensity (with mean recontructed phase)")
         fig.colorbar(im3, cax = cax3)
