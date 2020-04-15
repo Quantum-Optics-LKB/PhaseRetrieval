@@ -165,7 +165,7 @@ def main():
             signal_f = Interpol(size, h, 0, 0, 0, 1, signal_f)
             I_f_old = np.reshape(Intensity(1, signal_f), (h,w))  # retrieve far field intensity
             #if adaptative mask option, update the mask
-            if kwargs["mask_sr"]=='adaptative':
+            if "mask_sr" in kwargs and kwargs["mask_sr"]=='adaptative':
                 mask_sr = define_mask(mask_sr*I_f_old, threshold, False) #no plots
             signal_f = SubIntensity(I * mask_sr + I_f_old * mask_nr,
                                     signal_f)  # Substitute the measured far field into the field only in the signal region
@@ -256,15 +256,18 @@ def main():
 
     # initiate  intensities, phase and mask
     I = np.asarray(Image.open(args.I))
-    I0 = np.asarray(Image.open(args.I0))
     if I.ndim==3:
         if not(args.s):
             print("Target intensity is a multi-level image, taking the first layer")
         I = I[:, :, 0] # extract only the first channel if needed
-    if I0.ndim==3:
-        if not (args.s):
-            print("Initial intensity is a multi-level image, taking the first layer")
-        I0 = I0[:, :, 0]
+    if args.I0:
+        I0 = np.asarray(Image.open(args.I0))
+        if I0.ndim == 3:
+            if not (args.s):
+                print("Initial intensity is a multi-level image, taking the first layer")
+            I0 = I0[:, :, 0]
+    else :
+        I0 = np.ones(I.shape)
     #apply gaussian profile
     I0=gaussian_profile(I0, 0.5)
     I=gaussian_profile(I, 0.5)
@@ -388,10 +391,10 @@ def main():
     rms_sr[np.where(I > mask_threshold)[0], np.where(I > mask_threshold)[1]] = 1
     A = Begin(size, wavelength, h_0)
     A = SubIntensity(I0, A)
-    #A = SubPhase(phi+phi0, A) #add source beam phase
+    #A = SubPhase(phi-phi0, A) #add source beam phase
     A = SubPhase(phi, A) #add source beam phase
     A = Forvard(z, A)
-    I_final = np.reshape(Intensity(1, A), (h_0, h_0))
+    I_final = np.reshape(Intensity(0, A), (h_0, h_0))
     phi_final = np.reshape(Phase(A), (h_0, h_0))
     phi_final_cut = phi_final[int(h/2),:]
     #Compute FT of reconstructed intensity.
@@ -449,7 +452,7 @@ def main():
         ax2.set_title("Target intensity")
         fig.colorbar(im2, cax = cax2)
         im3=ax3.imshow(I_final, cmap="viridis", vmin=vmin, vmax=vmax)
-        ax3.imshow(np.ones(rms_sr.shape)-rms_sr,cmap='Greys', alpha=0.4)
+        #ax3.imshow(np.ones(rms_sr.shape)-rms_sr,cmap='Greys', alpha=0.4) #grey over non signal region
         ax3.text(8, 18, f"RMS = {round(RMS, ndigits=3)} CONV = {round(conv_eff, ndigits=3)}", bbox={'facecolor': 'white', 'pad': 3})
         ax3.set_title("Propagated intensity (with mean recontructed phase)")
         fig.colorbar(im3, cax = cax3)
