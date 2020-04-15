@@ -119,9 +119,9 @@ def main():
         Assumes the propagation in the provided setup to retrieve the phase from the intensity at the image plane
         :param I0: Source intensity field
         :param I: Intensity field from which to retrieve the phase
-        :param f: Focal length of the lens conjugating the two planes
-        :param N: Number of iterations for GS algorithm
+        :param k: Number of iterations for GS algorithm
         :param unwrap : Phase unwrapping at the end
+        :param plot : Toggles plots
         :param threshold : Threshold for automatic mask float in [0,1] default is 1e-2
         :param **mask_sr : Signal region  np.ndarray
         :param **phi0 : Initial phase of the source np.ndarray

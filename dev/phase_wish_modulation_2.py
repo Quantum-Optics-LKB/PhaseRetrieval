@@ -88,9 +88,9 @@ def phase_retrieval(I0: np.ndarray, I: np.ndarray, k: int, unwrap: bool = False,
     Assumes the propagation in the provided setup to retrieve the phase from the intensity at the image plane
     :param I0: Source intensity field
     :param I: Intensity field from which to retrieve the phase
-    :param f: Focal length of the lens conjugating the two planes
-    :param N: Number of iterations for GS algorithm
+    :param k: Number of iterations for GS algorithm
     :param unwrap : Phase unwrapping at the end
+    :param plot : toggle plots
     :param threshold : Threshold for automatic mask float in [0,1] default is 1e-2
     :param **mask_sr : Signal region  np.ndarray
     :param **phi0 : Initial phase of the source np.ndarray
@@ -195,7 +195,15 @@ def gaussian_profile(I: np.ndarray, sigma: float):
 
 
 # initiate custom phase and intensity filters emulating the SLM
-I0 = np.asarray(Image.open("harambe_512.bmp"))[:, :, 0]  # extract only the first channel
-phi0 = np.asarray(Image.open("calib_512.bmp"))
-
-
+I0 = np.asarray(Image.open("intensities/I0_512_big.bmp"))[:, :, 0]  # extract only the first channel
+phi0 = np.asarray(Image.open("phases/calib_512_big.bmp"))
+I0=I0/np.max(I0)
+phi0=phi0/np.max(phi0)
+#conversion to rad
+phi0=np.pi*(phi0-0.5*np.ones(phi0.shape))
+#define target field
+A=Begin(size_SLM, wavelength, I0.shape[0])
+A=SubIntensity(I0, A)
+A=SubPhase(phi0, A)
+A=Forvard(z, A)
+I=np.reshape(Intensity(0, A), I0.shape)
