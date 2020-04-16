@@ -242,7 +242,8 @@ def main():
 
     #List of hardcoded parameters to read from a config file
 
-    size = float(conf["params"]["size"])  # size of the SLM window
+    size = float(conf["params"]["size"])  # size of the image plane
+    size_SLM = float(conf["params"]["size_SLM"])  # size of the SLM window
     wavelength = float(conf["params"]["wavelength"])
     z = float(conf["params"]["z"]) # propagation distance
     N_gs = int(conf["params"]["N_gs"]) # number of GS iterations
