@@ -488,7 +488,8 @@ def main():
         fig.colorbar(im2, cax = cax2)
         im3=ax3.imshow(I_final, cmap="viridis", vmin=vmin, vmax=vmax)
         #ax3.imshow(np.ones(rms_sr.shape)-rms_sr,cmap='Greys', alpha=0.4) #grey over non signal region
-        ax3.text(8, 18, f"RMS = {round(RMS, ndigits=3)} CONV = {round(conv_eff, ndigits=3)}", bbox={'facecolor': 'white', 'pad': 3})
+        ax3.text(8, 18, f"RMS = {round(RMS, ndigits=3)} CONV = {round(conv_eff, ndigits=3)}",
+                 bbox={'facecolor': 'white', 'pad': 3})
         ax3.set_title("Propagated intensity (with mean recontructed phase)")
         fig.colorbar(im3, cax = cax3)
         #extent=[min(freq), max(freq), min(freq), max(freq)]
