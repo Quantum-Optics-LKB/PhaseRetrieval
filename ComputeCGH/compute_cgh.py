@@ -248,7 +248,8 @@ def main():
 
     # List of hardcoded parameters to read from a config file
 
-    size = float(conf["params"]["size"])  # size of the SLM window
+    size = float(conf["params"]["size"])  # size of the image plane
+    size_SLM = float(conf["params"]["size_SLM"])  # size of the SLM window
     wavelength = float(conf["params"]["wavelength"])
     z = float(conf["params"]["z"])  # propagation distance
     N_gs = int(conf["params"]["N_gs"])  # number of GS iterations
@@ -432,7 +433,8 @@ def main():
     # propagate the computed solution to image plane
     A = Begin(size, wavelength, h_0)
     A = SubIntensity(I0, A)
-    A = SubPhase(phi, A)
+    # A = SubPhase(phi-phi0, A) #add source beam phase
+    A = SubPhase(phi, A)  # add source beam phase
     A = Forvard(z, A)
     I_final = np.reshape(Intensity(0, A), (h_0, h_0))
     phi_final = np.reshape(Phase(A), (h_0, h_0))
