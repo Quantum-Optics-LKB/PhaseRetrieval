@@ -13,6 +13,7 @@ import time
 import sys
 import configparser
 import ast
+from scipy import signal, interpolate
 
 class WavefrontSensor:
     def __init__(self, cfg_path):
@@ -26,7 +27,7 @@ class WavefrontSensor:
         self.N_mod = int(conf["params"]["N_mod"])  # number of modulation steps
         self.mod_intensity = float(conf["params"]["mod_intensity"])  # modulation intensity
         self.SLM_levels = int(conf["params"]["SLM_levels"])  # number of SLM levels
-        self.mask_threshold = float(conf['params']['mask_threshold'])  # intensity threshold for the signal region
+        self.threshold = float(conf['params']['mask_threshold'])  # intensity threshold for the signal region
         self.elements = []  # list of optical elements
         for element in conf["setup"]:
             self.elements.append(ast.literal_eval(conf['setup'][element]))
@@ -61,6 +62,7 @@ class WavefrontSensor:
         :param plot: Plot or not the defined mask
         :return: mask_sr the defined mask
         """
+        threshold = self.threshold
         h, w = I.shape
         # compute FT
         I_tf = np.fft.fft2(I)
@@ -115,7 +117,39 @@ class WavefrontSensor:
             fig.colorbar(im3, cax=cax3)
             plt.show()
         return mask_sr
-
+    def propagate(self, I0: np.ndarray, phi0: np.ndarray, z: float):
+        """
+        Implements propagation using Fresnel diffraction
+        :param I0: Intensity to propagate
+        :param phi0: Phase of the field
+        :param z : Propagation distance in metre
+        :return: I, phi : Propagated field
+        """
+        wv = self.wavelength
+        size = self.size
+        size_SLM = self.size_SLM
+        k=2*np.pi/wv
+        #k=1/wv
+        A0 = np.sqrt(I0)*np.exp(1j*phi0)
+        x = np.linspace(0, I0.shape[0], I0.shape[0])-(I0.shape[0]/2)*np.ones(I0.shape[0])
+        y = np.linspace(0, I0.shape[1], I0.shape[1])-(I0.shape[1]/2)*np.ones(I0.shape[1])
+        x, y = x / np.max(x), y / np.max(y)
+        X, Y = np.meshgrid(x,y)
+        R = self.size*np.sqrt(X**2 + Y**2)
+        D = np.exp(1j*k*z)/(1j*wv*z)
+        Q = np.exp(1j*(k/(2*z))*R**2)
+        A = D*Q*np.fft.fftshift(np.fft.fft2(A0*Q, norm='ortho'))
+        #A = signal.fftconvolve(A0, D*Q, mode='full')
+        #x1 = np.linspace(0, A.shape[0], A.shape[0])-(A.shape[0]/2)*np.ones(A.shape[0])
+        #y1 = np.linspace(0, A.shape[1], A.shape[1])-(A.shape[1]/2)*np.ones(A.shape[1])
+        #x1, y1 = x1 / np.max(x1), y1 / np.max(y1)
+        I = np.abs(A)**2
+        phi = np.angle(A)
+        #interp_I = interpolate.RectBivariateSpline(x1, y1, I)
+        #interp_phi = interpolate.RectBivariateSpline(x1, y1, phi)
+        #I = interp_I(x, y)
+        #phi = interp_phi(x, y)
+        return I, phi
 
     def phase_retrieval_wish(self, I0: np.ndarray, I: list, Phi0: list, unwrap: bool = False, plot: bool = True, **kwargs):
         """
@@ -133,6 +167,10 @@ class WavefrontSensor:
         """
         k=self.N_gs
         threshold=self.threshold
+        z=self.z
+        size = self.size
+        size_SLM = self.size_SLM
+        wavelength = self.wavelength
         h_0, w_0 = I0.shape
         h, w = I[0].shape
         # initiate initial phase
@@ -142,7 +180,7 @@ class WavefrontSensor:
             phi0 = np.zeros((h, w))
         # if no masks are specified, the function defines one
         if "mask_sr" not in kwargs:
-            mask_sr = define_mask(I[0], threshold, plot)
+            mask_sr = self.define_mask(I[0], plot)
         elif kwargs["mask_sr"] == 'adaptative':
             mask_sr = np.ones((h, w))
         else:
@@ -174,7 +212,7 @@ class WavefrontSensor:
                 I_f_old = np.reshape(Intensity(0, signal_f), (h, w))  # retrieve far field intensity
                 # if adaptative mask option, update the mask
                 if "mask_sr" in kwargs and kwargs["mask_sr"] == 'adaptative':
-                    mask_sr = define_mask(mask_sr * I_f_old, threshold, False)  # no plots
+                    mask_sr = self.define_mask(mask_sr * I_f_old, False)  # no plots
                 signal_f = SubIntensity(I[k_s] * mask_sr + I_f_old * mask_nr,
                                         signal_f)  # Substitute the measured far field into the field only in the signal region
                 Signal_f[k_s]=signal_f
@@ -189,7 +227,7 @@ class WavefrontSensor:
             phi = np.mean(np.array(Phi), axis=0)
             T2 = time.time() - T1
             progress = float((i + 1) / k)
-            update_progress(progress)
+            self.update_progress(progress)
 
 
         if unwrap:
@@ -262,10 +300,13 @@ for phi_0 in Phi0:
     A = Begin(Sensor.size_SLM, Sensor.wavelength, I0.shape[0])
     A = SubIntensity(I0, A)
     A = SubPhase(phi_0, A)
-    A = Forvard(z, A)
-    I = np.reshape(Intensity(1, A), I0.shape)
+    #A = Forvard(Sensor.z, A)
+    #I = np.reshape(Intensity(1, A), I0.shape)
+    I, phi = Sensor.propagate(I0, phi_0, Sensor.z)
+    plt.imshow(I)
+    plt.show()
     I_target.append(I)
-#I_target = np.array(I_target)
+I_target = np.array(I_target)
 I = np.mean(I_target, axis=0)
 phi, mask = Sensor.phase_retrieval_wish(I0, I_target, Phi0, plot=True)
 # compute RMS
