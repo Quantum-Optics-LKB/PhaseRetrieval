@@ -14,6 +14,8 @@ import sys
 import configparser
 import ast
 from scipy import signal, interpolate
+import cupy, cupyx
+import multiprocessing
 
 class WavefrontSensor:
     def __init__(self, cfg_path):
@@ -138,31 +140,29 @@ class WavefrontSensor:
         R = self.size*np.sqrt(X**2 + Y**2)
         D = np.exp(1j*k*z)/(1j*wv*z)
         Q = np.exp(1j*(k/(2*z))*R**2)
-        A = D*Q*np.fft.fftshift(np.fft.fft2(A0*Q, norm='ortho'))
-        #A = signal.fftconvolve(A0, D*Q, mode='full')
-        #x1 = np.linspace(0, A.shape[0], A.shape[0])-(A.shape[0]/2)*np.ones(A.shape[0])
-        #y1 = np.linspace(0, A.shape[1], A.shape[1])-(A.shape[1]/2)*np.ones(A.shape[1])
-        #x1, y1 = x1 / np.max(x1), y1 / np.max(y1)
+        #A = D*Q*np.fft.fftshift(np.fft.fft2(A0*Q, norm='ortho'))
+        A = signal.fftconvolve(A0, D*Q, mode='full')
+        x1 = np.linspace(0, A.shape[0], A.shape[0])-(A.shape[0]/2)*np.ones(A.shape[0])
+        y1 = np.linspace(0, A.shape[1], A.shape[1])-(A.shape[1]/2)*np.ones(A.shape[1])
+        x1, y1 = x1 / np.max(x1), y1 / np.max(y1)
         I = np.abs(A)**2
         phi = np.angle(A)
-        #interp_I = interpolate.RectBivariateSpline(x1, y1, I)
-        #interp_phi = interpolate.RectBivariateSpline(x1, y1, phi)
-        #I = interp_I(x, y)
-        #phi = interp_phi(x, y)
+        interp_I = interpolate.RectBivariateSpline(x1, y1, I)
+        interp_phi = interpolate.RectBivariateSpline(x1, y1, phi)
+        I = interp_I(x, y)
+        phi = interp_phi(x, y)
         return I, phi
 
-    def phase_retrieval_wish(self, I0: np.ndarray, I: list, Phi0: list, unwrap: bool = False, plot: bool = True, **kwargs):
+    def phase_retrieval_wish(self, I0: np.ndarray, I_target: list, Phi_m: list, unwrap: bool = False, plot: bool = True, **kwargs):
         """
         Assumes the propagation in the provided setup to retrieve the phase from the intensity at the image plane
         :param I0: Source intensity field
         :param I: Intensity sample fields from which to retrieve the phase
-        :param Phi0 : Phase masks
+        :param Phi_m : Phase modulations
         :param k: Number of iterations for GS algorithm
         :param unwrap : Phase unwrapping at the end
         :param plot : toggle plots
         :param threshold : Threshold for automatic mask float in [0,1] default is 1e-2
-        :param **mask_sr : Signal region  np.ndarray
-        :param **phi0 : Initial phase of the source np.ndarray
         :return phi: The calculated phase map using Gerchberg-Saxton algorithm
         """
         k=self.N_gs
@@ -172,39 +172,70 @@ class WavefrontSensor:
         size_SLM = self.size_SLM
         wavelength = self.wavelength
         h_0, w_0 = I0.shape
-        h, w = I[0].shape
-        # initiate initial phase
-        if "phi0" in kwargs:
-            phi0 = kwargs["phi0"]
-        else:
-            phi0 = np.zeros((h, w))
-        # if no masks are specified, the function defines one
-        if "mask_sr" not in kwargs:
-            mask_sr = self.define_mask(I[0], plot)
-        elif kwargs["mask_sr"] == 'adaptative':
-            mask_sr = np.ones((h, w))
-        else:
-            mask_sr = kwargs["mask_sr"]
-        mask_nr = np.ones(mask_sr.shape) - mask_sr
+        h, w = I_target[0].shape
+        self.mask_sr = self.define_mask(I_target[0], plot)
+        self.mask_nr = np.ones(self.mask_sr.shape) - self.mask_sr
         T0 = time.time()
         Signal_s=[]
         Signal_f=[]
         Phi=[]
         # initiate fields in the SLM plane
-        for phi0 in Phi0:
+        for phi_m in Phi_m:
             signal_s = Begin(size, wavelength, h)
             signal_s = SubIntensity(I0, signal_s)
-            signal_s = SubPhase(phi0, signal_s)
             Signal_s.append(signal_s)
             Signal_f.append(0)
-            Phi.append(phi0)
-        phi = np.mean(np.array(Phi), axis=0)
+            Phi.append(phi_m)
+        #initiate the loop  with a flat phase
+        phi = np.zeros(I0.shape)
+        # for multiprocessing
+        def _GS_iterate_mod(self, phi, phi_m, I_t, signal_s):
+            """
+            Iterates the GS loop once (from iteration N-1 to iteration N)
+            :param self: Private function of a WavefrontSensor instance
+            :param phi: Phase map at the iteration N-1
+            :param phi_m: Modulation applied on the SLM
+            :param I_target: Target intensity
+            :param signal_s: Signal on the SLM at the iteration N-1
+            :return: phi, signal_s : the signal in the SLM plane at iteration N
+            """
+            # submit new phase (mean phase+modulation)
+            signal_s = SubPhase(phi + phi_m, signal_s)
+            # submit source intensity
+            signal_s = SubIntensity(I0, signal_s)
+            signal_f = Forvard(z, signal_s)  # Propagate to the far field
+            # interpolate to target size
+            signal_f = Interpol(size, h, 0, 0, 0, 1, signal_f)
+            I_f_old = np.reshape(Intensity(0, signal_f), (h, w))  # retrieve far field intensity
+            # if adaptative mask option, update the mask
+            if "mask_sr" in kwargs and kwargs["mask_sr"] == 'adaptative':
+                self.mask_sr = self.define_mask(self.mask_sr * I_f_old, False)  # no plots
+                self.mask_nr = np.ones(self.mask_sr.shape)-self.mask_sr
+            signal_f = SubIntensity(I_t * self.mask_sr + I_f_old * self.mask_nr,
+                                    signal_f)  # Substitute the measured far field into the field only in the signal region
+            signal_s = Forvard(-z, signal_f)  # Propagate back to the near field
+            # interpolate to source size
+            signal_s = Interpol(size, h_0, 0, 0, 0, 1, signal_s)
+            signal_s = SubIntensity(I0, signal_s)  # Substitute the measured near field into the field
+            pm_s = np.reshape(Phase(signal_s), I0.shape)
+            phi = pm_s - phi_m
+            return phi, signal_s
         for i in range(k):
             T1 = time.time()
+            Processes=[]
+            for i_m in range(self.N_mod):
+                p = multiprocessing.Process(target=_GS_iterate_mod, args=[self, phi, Phi_m[i_m], I_target[i_m], Signal_s[i_m]])
+                p.start()
+                Processes.append(p)
+            for process in Processes:
+                process.join()
+            """
             #initialize the phase to the mean of the phases of the samples
             for k_s in range(len(Signal_s)):
                 #submit new phase (mean phase+modulation)
-                signal_s = SubPhase(phi+Phi[k_s], Signal_s[k_s])
+                signal_s = SubPhase(phi+Phi_m[k_s], Signal_s[k_s])
+                #submit source intensity
+                signal_s = SubIntensity(I0, signal_s)
                 #signal_s = SubPhase(phi, signal_s)
                 signal_f = Forvard(z, signal_s)  # Propagate to the far field
                 # interpolate to target size
@@ -213,17 +244,17 @@ class WavefrontSensor:
                 # if adaptative mask option, update the mask
                 if "mask_sr" in kwargs and kwargs["mask_sr"] == 'adaptative':
                     mask_sr = self.define_mask(mask_sr * I_f_old, False)  # no plots
-                signal_f = SubIntensity(I[k_s] * mask_sr + I_f_old * mask_nr,
+                signal_f = SubIntensity(I_target[k_s] * mask_sr + I_f_old * mask_nr,
                                         signal_f)  # Substitute the measured far field into the field only in the signal region
                 Signal_f[k_s]=signal_f
-            for k_f in range(len(Signal_f)):
-                signal_s = Forvard(-z, Signal_f[k_f])  # Propagate back to the near field
+                signal_s = Forvard(-z, Signal_f[k_s])  # Propagate back to the near field
                 # interpolate to source size
                 signal_s = Interpol(size, h_0, 0, 0, 0, 1, signal_s)
                 signal_s = SubIntensity(I0, signal_s)  # Substitute the measured near field into the field
                 pm_s = np.reshape(Phase(signal_s), I0.shape)
-                Signal_s[k_f]=signal_s
-                Phi[k_f]=-pm_s+Phi0[k_f]
+                Signal_s[k_s]=signal_s
+                Phi[k_s]=pm_s-Phi_m[k_s]
+            """
             phi = np.mean(np.array(Phi), axis=0)
             T2 = time.time() - T1
             progress = float((i + 1) / k)
@@ -286,31 +317,41 @@ phi0_sr[np.where(I0 == 0)[0], np.where(I0 == 0)[1]] = 0
 phi0_sr[np.where(I0 > 0)[0], np.where(I0 > 0)[1]] = 1
 # conversion to rad
 phi0 = 2 * np.pi * (phi0 - 0.5 * np.ones(phi0.shape)) * phi0_sr
-Phi0 = []
-Phi = []
+Phi_m = []
+Phi0=[]
 I_target = []
 for k in range(Sensor.N_mod):
     #for k in range(int(N_mod/2)):
-    phi_m = phi0 + Sensor.modulate(phi0)
-    Phi0.append(phi_m)
-    #Phi0.append(-phi_m)
+    phi_m = Sensor.modulate(phi0)
+    Phi0.append(phi0+phi_m)
+    Phi_m.append(phi_m)
     #Phi0 = np.array(Phi0)
+T0=time.time()
+A = Begin(Sensor.size_SLM, Sensor.wavelength, I0.shape[0])
 for phi_0 in Phi0:
     # define target field
-    A = Begin(Sensor.size_SLM, Sensor.wavelength, I0.shape[0])
     A = SubIntensity(I0, A)
     A = SubPhase(phi_0, A)
-    #A = Forvard(Sensor.z, A)
-    #I = np.reshape(Intensity(1, A), I0.shape)
-    I, phi = Sensor.propagate(I0, phi_0, Sensor.z)
-    plt.imshow(I)
-    plt.show()
+    A = Forvard(Sensor.z, A)
+    I = np.reshape(Intensity(1, A), I0.shape)
     I_target.append(I)
+T=time.time()-T0
+print(f"Took me {T} s to generate the modulation")
 I_target = np.array(I_target)
 I = np.mean(I_target, axis=0)
-phi, mask = Sensor.phase_retrieval_wish(I0, I_target, Phi0, plot=True)
+phi, mask = Sensor.phase_retrieval_wish(I0, I_target, Phi_m, plot=False)
 # compute RMS
-RMS = (1 / 2 * np.pi) * np.mean(np.sqrt(phi0_sr * (phi0 - phi) ** 2))
+T0=time.time()
+RMS = (1 / (2 * np.pi)) * np.sqrt(np.mean(phi0_sr * (phi0 - phi) ** 2))
+T=time.time()-T0
+print(f'Took me {T} second on the CPU')
+phi_gpu = cupy.asarray(phi)
+phi0_gpu = cupy.asarray(phi0)
+T0=time.time()
+RMS_gpu = (1/(2*np.pi))*cupy.sqrt(cupy.mean(cupy.square(phi0_gpu-phi_gpu)))
+T=time.time()-T0
+print(f'Took me {T} second on the GPU')
+
 fig = plt.figure()
 ax1 = fig.add_subplot(221)
 ax2 = fig.add_subplot(222)
