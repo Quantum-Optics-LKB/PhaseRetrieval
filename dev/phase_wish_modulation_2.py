@@ -312,8 +312,10 @@ class WavefrontSensor:
         x=self.mod_intensity
         # generate (N/10)x(N/10) random matrices that will then be upscaled through interpolation
         h, w = int(phi.shape[0] / 10), int(phi.shape[1] / 10)
-        M = np.pi * (x * (np.ones((h, w)) - 2 * np.random.rand(h, w, )))  # random matrix between [-x*pi and x*pi]
+        M =  (np.ones((h, w)) - 2 * np.random.rand(h, w))  # random matrix between [-x*pi and x*pi]
         phi_m = interpolation.zoom(M, phi.shape[0] / h)
+        phi_m = phi_m/np.max(phi_m)
+        phi_m = np.pi * x * phi_m
         return phi_m
 
 
@@ -354,6 +356,7 @@ I_target = []
 for k in range(Sensor.N_mod):
 #for k in range(int(Sensor.N_mod/2)):
     phi_m = Sensor.modulate(phi0)
+    print(np.max(phi_m))
     Phi0.append(phi0+phi_m)
     #Phi0.append(phi0-phi_m)
     Phi_m.append(phi_m)
