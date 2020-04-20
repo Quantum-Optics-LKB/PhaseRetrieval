@@ -120,7 +120,7 @@ class WavefrontSensor:
             fig.colorbar(im3, cax=cax3)
             plt.show()
         return mask_sr
-    def propagate(self, A0, z: float):
+    def FRT(self, A0, z: float):
         """
         Implements propagation using Fresnel diffraction
         :param I0: Intensity to propagate
@@ -138,18 +138,51 @@ class WavefrontSensor:
         R = self.size*np.sqrt(X**2 + Y**2)
         D = np.exp(1j*k*z)/(1j*wv*z)
         Q = np.exp(1j*(k/(2*z))*R**2)
-        A = signal.fftconvolve(A0, D*Q, mode='full')
-        A = A/np.max(np.abs(A))
-        x1 = np.linspace(0, A.shape[0], A.shape[0])-(A.shape[0]/2)*np.ones(A.shape[0])
-        y1 = np.linspace(0, A.shape[1], A.shape[1])-(A.shape[1]/2)*np.ones(A.shape[1])
-        x1, y1 = x1 / np.max(x1), y1 / np.max(y1)
-        I = np.abs(A)**2
-        phi = np.angle(A)
-        interp_I = interpolate.interp2d(x1, y1, I, kind='quintic')
-        interp_phi = interpolate.interp2d(x1, y1, phi, kind='quintic')
-        I = np.abs(interp_I(x, y))
-        phi = interp_phi(x, y)
-        A = np.sqrt(I)*np.exp(1j*phi)
+        A = D*Q*np.fft.fftshift(np.fft.fft2(A0*Q))
+        #A = signal.fftconvolve(A0, D*Q, mode='full')
+        #A = A/np.max(np.abs(A))
+        #x1 = np.linspace(0, A.shape[0], A.shape[0])-(A.shape[0]/2)*np.ones(A.shape[0])
+        #y1 = np.linspace(0, A.shape[1], A.shape[1])-(A.shape[1]/2)*np.ones(A.shape[1])
+        #x1, y1 = x1 / np.max(x1), y1 / np.max(y1)
+        #I = np.abs(A)**2
+        #phi = np.angle(A)
+        #interp_I = interpolate.interp2d(x1, y1, I, kind='quintic')
+        #interp_phi = interpolate.interp2d(x1, y1, phi, kind='quintic')
+        #I = np.abs(interp_I(x, y))
+        #phi = interp_phi(x, y)
+        #A = np.sqrt(I)*np.exp(1j*phi)
+        return A
+    def IFRT(self, A0, z: float):
+        """
+        Implements propagation using Fresnel diffraction
+        :param I0: Intensity to propagate
+        :param phi0: Phase of the field
+        :param z : Propagation distance in metre
+        :return: I, phi : Propagated field
+        """
+        wv = self.wavelength
+        k=2*np.pi/wv
+        #k=1/wv
+        x = np.linspace(0, A0.shape[0], A0.shape[0])-(A0.shape[0]/2)*np.ones(A0.shape[0])
+        y = np.linspace(0, A0.shape[1], A0.shape[1])-(A0.shape[1]/2)*np.ones(A0.shape[1])
+        x, y = x / np.max(x), y / np.max(y)
+        X, Y = np.meshgrid(x,y)
+        R = self.size*np.sqrt(X**2 + Y**2)
+        D = np.exp(-1j*k*z)*(1j*wv*z)
+        Q = np.exp(1j*(k/(2*z))*R**2)
+        A = D*Q*np.fft.fftshift(np.fft.ifft2(A0*Q**-1))
+        #A = signal.fftconvolve(A0, D*Q, mode='full')
+        #A = A/np.max(np.abs(A))
+        #x1 = np.linspace(0, A.shape[0], A.shape[0])-(A.shape[0]/2)*np.ones(A.shape[0])
+        #y1 = np.linspace(0, A.shape[1], A.shape[1])-(A.shape[1]/2)*np.ones(A.shape[1])
+        #x1, y1 = x1 / np.max(x1), y1 / np.max(y1)
+        #I = np.abs(A)**2
+        #phi = np.angle(A)
+        #interp_I = interpolate.interp2d(x1, y1, I, kind='quintic')
+        #interp_phi = interpolate.interp2d(x1, y1, phi, kind='quintic')
+        #I = np.abs(interp_I(x, y))
+        #phi = interp_phi(x, y)
+        #A = np.sqrt(I)*np.exp(1j*phi)
         return A
 
     def phase_retrieval_wish(self, I0: np.ndarray, I_target: list, Phi_m: list, unwrap: bool = False, plot: bool = True, **kwargs):
@@ -200,6 +233,7 @@ class WavefrontSensor:
             """
             # submit new phase (mean phase+modulation)
             signal_s = SubPhase(phi + Phi_m[k_s], Signal_s[k_s])
+            #signal_s = SubPhase(phi , Signal_s[k_s])
             # submit source intensity
             signal_s = SubIntensity(I0, signal_s)
             # signal_s = SubPhase(phi, signal_s)
@@ -217,7 +251,7 @@ class WavefrontSensor:
             signal_s = SubIntensity(I0, signal_s)  # Substitute the measured near field into the field
             pm_s = np.reshape(Phase(signal_s), I0.shape)
             Signal_s[k_s] = signal_s
-            return_dic[str(k_s)] = pm_s - Phi_m[k_s]
+            return_dic[str(k_s)] = -pm_s + Phi_m[k_s]
 
         def _GS_iterate_mod_1(self, phi, Phi_m, I_target, Signal_s, k_s, return_dic):
             """
@@ -273,7 +307,6 @@ class WavefrontSensor:
         """
         A function to randomly modulating a phase map without introducing too much high frequency noise
         :param phi: Phase map to be modulated
-        :param x : Modulation intensity. Must be between 0 and 1.
         :return: phi_m a modulated phase map to multiply to phi
         """
         x=self.mod_intensity
@@ -281,7 +314,6 @@ class WavefrontSensor:
         h, w = int(phi.shape[0] / 10), int(phi.shape[1] / 10)
         M = np.pi * (x * (np.ones((h, w)) - 2 * np.random.rand(h, w, )))  # random matrix between [-x*pi and x*pi]
         phi_m = interpolation.zoom(M, phi.shape[0] / h)
-        phi_m = phi_m * np.pi  # bring phase between [-pi.pi]
         return phi_m
 
 
