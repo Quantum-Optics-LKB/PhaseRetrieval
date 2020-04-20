@@ -120,7 +120,7 @@ class WavefrontSensor:
             fig.colorbar(im3, cax=cax3)
             plt.show()
         return mask_sr
-    def propagate(self, I0: np.ndarray, phi0: np.ndarray, z: float):
+    def propagate(self, A0, z: float):
         """
         Implements propagation using Fresnel diffraction
         :param I0: Intensity to propagate
@@ -129,30 +129,28 @@ class WavefrontSensor:
         :return: I, phi : Propagated field
         """
         wv = self.wavelength
-        size = self.size
-        size_SLM = self.size_SLM
         k=2*np.pi/wv
         #k=1/wv
-        A0 = np.sqrt(I0)*np.exp(1j*phi0)
-        x = np.linspace(0, I0.shape[0], I0.shape[0])-(I0.shape[0]/2)*np.ones(I0.shape[0])
-        y = np.linspace(0, I0.shape[1], I0.shape[1])-(I0.shape[1]/2)*np.ones(I0.shape[1])
+        x = np.linspace(0, A0.shape[0], A0.shape[0])-(A0.shape[0]/2)*np.ones(A0.shape[0])
+        y = np.linspace(0, A0.shape[1], A0.shape[1])-(A0.shape[1]/2)*np.ones(A0.shape[1])
         x, y = x / np.max(x), y / np.max(y)
         X, Y = np.meshgrid(x,y)
         R = self.size*np.sqrt(X**2 + Y**2)
         D = np.exp(1j*k*z)/(1j*wv*z)
         Q = np.exp(1j*(k/(2*z))*R**2)
-        #A = D*Q*np.fft.fftshift(np.fft.fft2(A0*Q, norm='ortho'))
         A = signal.fftconvolve(A0, D*Q, mode='full')
+        A = A/np.max(np.abs(A))
         x1 = np.linspace(0, A.shape[0], A.shape[0])-(A.shape[0]/2)*np.ones(A.shape[0])
         y1 = np.linspace(0, A.shape[1], A.shape[1])-(A.shape[1]/2)*np.ones(A.shape[1])
         x1, y1 = x1 / np.max(x1), y1 / np.max(y1)
         I = np.abs(A)**2
         phi = np.angle(A)
-        interp_I = interpolate.RectBivariateSpline(x1, y1, I)
-        interp_phi = interpolate.RectBivariateSpline(x1, y1, phi)
-        I = interp_I(x, y)
+        interp_I = interpolate.interp2d(x1, y1, I, kind='quintic')
+        interp_phi = interpolate.interp2d(x1, y1, phi, kind='quintic')
+        I = np.abs(interp_I(x, y))
         phi = interp_phi(x, y)
-        return I, phi
+        A = np.sqrt(I)*np.exp(1j*phi)
+        return A
 
     def phase_retrieval_wish(self, I0: np.ndarray, I_target: list, Phi_m: list, unwrap: bool = False, plot: bool = True, **kwargs):
         """
@@ -205,18 +203,43 @@ class WavefrontSensor:
             # submit source intensity
             signal_s = SubIntensity(I0, signal_s)
             # signal_s = SubPhase(phi, signal_s)
-            signal_f = Forvard(z, signal_s)  # Propagate to the far field
+            #signal_f = Forvard(z, signal_s)  # Propagate to the far field
+            signal_f = Fresnel(z, signal_s)  # Propagate to the far field
             # interpolate to target size
             signal_f = Interpol(size, h, 0, 0, 0, 1, signal_f)
             I_f_old = np.reshape(Intensity(0, signal_f), (h, w))  # retrieve far field intensity
             signal_f = SubIntensity(I_target[k_s] * self.mask_sr + I_f_old * self.mask_nr,
                                     signal_f)  # Substitute the measured far field into the field only in the signal region
             signal_s = Forvard(-z, signal_f)  # Propagate back to the near field
+            #signal_s = Fresnel(-z, signal_f)  # Propagate back to the near field
             # interpolate to source size
             signal_s = Interpol(size, h_0, 0, 0, 0, 1, signal_s)
             signal_s = SubIntensity(I0, signal_s)  # Substitute the measured near field into the field
             pm_s = np.reshape(Phase(signal_s), I0.shape)
             Signal_s[k_s] = signal_s
+            return_dic[str(k_s)] = pm_s - Phi_m[k_s]
+
+        def _GS_iterate_mod_1(self, phi, Phi_m, I_target, Signal_s, k_s, return_dic):
+            """
+            Iterates the GS loop once (from iteration N-1 to iteration N). The function will store its outputs in the
+            specified lists in arguments.
+            :param self: Private function of a WavefrontSensor instance
+            :param phi: Phase map at the iteration N-1
+            :param phi_m: Modulation applied on the SLM
+            :param I_target: Target intensity
+            :param signal_s: Signal on the SLM at the iteration N-1
+            :return: phi, signal_s : the signal in the SLM plane at iteration N
+            """
+            # submit new phase (mean phase+modulation)
+            # submit source intensity
+            A_s = np.sqrt(I0)*np.exp(1j*(phi + Phi_m[k_s]))
+            #propagate to far field
+            A_f = self.propagate(A_s, z)
+            I_f_old = np.abs(A_f)**2  # retrieve far field intensity
+            A_f = np.sqrt(I_target[k_s] * self.mask_sr + I_f_old * self.mask_nr)*np.exp(1j*np.angle(A_f))
+                                     # Substitute the measured far field into the field only in the signal region
+            A_s = self.propagate(A_f, -z)  # Propagate back to the near field
+            pm_s = np.angle(A_s)
             return_dic[str(k_s)] = pm_s - Phi_m[k_s]
 
         for i in range(k):
@@ -231,31 +254,6 @@ class WavefrontSensor:
             for process in Processes:
                 process.join()
             Phi = [return_dict.get(str(_)) for _ in range(self.N_mod)]
-            """
-            #initialize the phase to the mean of the phases of the samples
-            for k_s in range(len(Signal_s)):
-                #submit new phase (mean phase+modulation)
-                signal_s = SubPhase(phi+Phi_m[k_s], Signal_s[k_s])
-                #submit source intensity
-                signal_s = SubIntensity(I0, signal_s)
-                #signal_s = SubPhase(phi, signal_s)
-                signal_f = Forvard(z, signal_s)  # Propagate to the far field
-                # interpolate to target size
-                signal_f = Interpol(size, h, 0, 0, 0, 1, signal_f)
-                I_f_old = np.reshape(Intensity(0, signal_f), (h, w))  # retrieve far field intensity
-                # if adaptative mask option, update the mask
-                if "mask_sr" in kwargs and kwargs["mask_sr"] == 'adaptative':
-                    mask_sr = self.define_mask(mask_sr * I_f_old, False)  # no plots
-                signal_f = SubIntensity(I_target[k_s] * mask_sr + I_f_old * mask_nr,
-                                        signal_f)  # Substitute the measured far field into the field only in the signal region
-                signal_s = Forvard(-z, signal_f)  # Propagate back to the near field
-                # interpolate to source size
-                signal_s = Interpol(size, h_0, 0, 0, 0, 1, signal_s)
-                signal_s = SubIntensity(I0, signal_s)  # Substitute the measured near field into the field
-                pm_s = np.reshape(Phase(signal_s), I0.shape)
-                Signal_s[k_s]=signal_s
-                Phi[k_s]=pm_s-Phi_m[k_s]
-            """
             phi = np.mean(np.array(Phi), axis=0)
             T2 = time.time() - T1
             progress = float((i + 1) / k)
@@ -322,19 +320,23 @@ Phi_m = []
 Phi0=[]
 I_target = []
 for k in range(Sensor.N_mod):
-    #for k in range(int(N_mod/2)):
+#for k in range(int(Sensor.N_mod/2)):
     phi_m = Sensor.modulate(phi0)
     Phi0.append(phi0+phi_m)
+    #Phi0.append(phi0-phi_m)
     Phi_m.append(phi_m)
-    #Phi0 = np.array(Phi0)
+    #Phi_m.append(-phi_m)
 T0=time.time()
 A = Begin(Sensor.size_SLM, Sensor.wavelength, I0.shape[0])
 for phi_0 in Phi0:
     # define target field
     A = SubIntensity(I0, A)
     A = SubPhase(phi_0, A)
-    A = Forvard(Sensor.z, A)
+    A = Fresnel(Sensor.z, A)
     I = np.reshape(Intensity(1, A), I0.shape)
+    #A0 = np.sqrt(I0)*np.exp(1j*phi_0)
+    #A = Sensor.propagate(A0, Sensor.z)
+    #I = np.abs(A)**2
     I_target.append(I)
 T=time.time()-T0
 print(f"Took me {T} s to generate the modulation")
