@@ -16,6 +16,7 @@ import ast
 from scipy import signal, interpolate
 import cupy, cupyx
 import multiprocessing
+import concurrent.futures
 
 class WavefrontSensor:
     def __init__(self, cfg_path):
@@ -177,21 +178,21 @@ class WavefrontSensor:
         self.mask_nr = np.ones(self.mask_sr.shape) - self.mask_sr
         T0 = time.time()
         Signal_s=[]
-        Signal_f=[]
         Phi=[]
+        # initiate the loop  with a flat phase
+        phi = np.zeros(I0.shape)
         # initiate fields in the SLM plane
         for phi_m in Phi_m:
             signal_s = Begin(size, wavelength, h)
             signal_s = SubIntensity(I0, signal_s)
             Signal_s.append(signal_s)
-            Signal_f.append(0)
-            Phi.append(phi_m)
-        #initiate the loop  with a flat phase
-        phi = np.zeros(I0.shape)
+            Phi.append(phi)
+
         # for multiprocessing
-        def _GS_iterate_mod(self, phi, phi_m, I_t, signal_s):
+        def _GS_iterate_mod(self, phi, Phi_m, I_target, Signal_s, k_s, return_dic):
             """
-            Iterates the GS loop once (from iteration N-1 to iteration N)
+            Iterates the GS loop once (from iteration N-1 to iteration N). The function will store its outputs in the
+            specified lists in arguments.
             :param self: Private function of a WavefrontSensor instance
             :param phi: Phase map at the iteration N-1
             :param phi_m: Modulation applied on the SLM
@@ -200,35 +201,36 @@ class WavefrontSensor:
             :return: phi, signal_s : the signal in the SLM plane at iteration N
             """
             # submit new phase (mean phase+modulation)
-            signal_s = SubPhase(phi + phi_m, signal_s)
+            signal_s = SubPhase(phi + Phi_m[k_s], Signal_s[k_s])
             # submit source intensity
             signal_s = SubIntensity(I0, signal_s)
+            # signal_s = SubPhase(phi, signal_s)
             signal_f = Forvard(z, signal_s)  # Propagate to the far field
             # interpolate to target size
             signal_f = Interpol(size, h, 0, 0, 0, 1, signal_f)
             I_f_old = np.reshape(Intensity(0, signal_f), (h, w))  # retrieve far field intensity
-            # if adaptative mask option, update the mask
-            if "mask_sr" in kwargs and kwargs["mask_sr"] == 'adaptative':
-                self.mask_sr = self.define_mask(self.mask_sr * I_f_old, False)  # no plots
-                self.mask_nr = np.ones(self.mask_sr.shape)-self.mask_sr
-            signal_f = SubIntensity(I_t * self.mask_sr + I_f_old * self.mask_nr,
+            signal_f = SubIntensity(I_target[k_s] * self.mask_sr + I_f_old * self.mask_nr,
                                     signal_f)  # Substitute the measured far field into the field only in the signal region
             signal_s = Forvard(-z, signal_f)  # Propagate back to the near field
             # interpolate to source size
             signal_s = Interpol(size, h_0, 0, 0, 0, 1, signal_s)
             signal_s = SubIntensity(I0, signal_s)  # Substitute the measured near field into the field
             pm_s = np.reshape(Phase(signal_s), I0.shape)
-            phi = pm_s - phi_m
-            return phi, signal_s
+            Signal_s[k_s] = signal_s
+            return_dic[str(k_s)] = pm_s - Phi_m[k_s]
+
         for i in range(k):
             T1 = time.time()
+            manager = multiprocessing.Manager()
+            return_dict = manager.dict()
             Processes=[]
             for i_m in range(self.N_mod):
-                p = multiprocessing.Process(target=_GS_iterate_mod, args=[self, phi, Phi_m[i_m], I_target[i_m], Signal_s[i_m]])
+                p = multiprocessing.Process(target=_GS_iterate_mod, args=[self, phi, Phi_m, I_target, Signal_s, i_m, return_dict])
                 p.start()
                 Processes.append(p)
             for process in Processes:
                 process.join()
+            Phi = [return_dict.get(str(_)) for _ in range(self.N_mod)]
             """
             #initialize the phase to the mean of the phases of the samples
             for k_s in range(len(Signal_s)):
@@ -246,8 +248,7 @@ class WavefrontSensor:
                     mask_sr = self.define_mask(mask_sr * I_f_old, False)  # no plots
                 signal_f = SubIntensity(I_target[k_s] * mask_sr + I_f_old * mask_nr,
                                         signal_f)  # Substitute the measured far field into the field only in the signal region
-                Signal_f[k_s]=signal_f
-                signal_s = Forvard(-z, Signal_f[k_s])  # Propagate back to the near field
+                signal_s = Forvard(-z, signal_f)  # Propagate back to the near field
                 # interpolate to source size
                 signal_s = Interpol(size, h_0, 0, 0, 0, 1, signal_s)
                 signal_s = SubIntensity(I0, signal_s)  # Substitute the measured near field into the field
@@ -266,7 +267,7 @@ class WavefrontSensor:
         phi = np.reshape(phi, (h, w))
         T3 = time.time() - T0
         print(f"Elapsed time : {T3} s")
-        return phi, mask_sr
+        return phi, self.mask_sr
 
 
     # modulation
