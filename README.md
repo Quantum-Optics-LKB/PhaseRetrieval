@@ -4,6 +4,9 @@ Following the 2 references below and taking advantage of my history with SLM's, 
 
 The approach presented in the 2 references is to use the SLM to modulate the face, and then use phase retrieval algos (Gerchberg-Saxton). The main advantage is that instead of doing one single calculation through a phase retrieval algo that is not perfect, one can average over the modulation thus greatly improving the precision of the reconstruction. 
 ![Principle of the algorithm](/images/wish_fig_2.png)
+**COMPUTE CGH**
+
+For now, a holographic pattern generator is available [here](ComputeCGH/compute_cgh.py). The wavefront sensor is still in developpment.
 
 **HOW DO I GET IT ?**
 
