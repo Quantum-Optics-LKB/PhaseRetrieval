@@ -237,8 +237,8 @@ class WavefrontSensor:
             # submit source intensity
             signal_s = SubIntensity(I0, signal_s)
             # signal_s = SubPhase(phi, signal_s)
-            #signal_f = Forvard(z, signal_s)  # Propagate to the far field
-            signal_f = Fresnel(z, signal_s)  # Propagate to the far field
+            signal_f = Forvard(z, signal_s)  # Propagate to the far field
+            #signal_f = Fresnel(z, signal_s)  # Propagate to the far field
             # interpolate to target size
             signal_f = Interpol(size, h, 0, 0, 0, 1, signal_f)
             I_f_old = np.reshape(Intensity(1, signal_f), (h, w))  # retrieve far field intensity
@@ -274,7 +274,7 @@ class WavefrontSensor:
                                      # Substitute the measured far field into the field only in the signal region
             A_s = self.IFRT(A_f, z)  # Propagate back to the near field
             pm_s = np.angle(A_s)
-            return_dic[str(k_s)] = pm_s - Phi_m[k_s]
+            return_dic[str(k_s)] = -pm_s + Phi_m[k_s]
 
         for i in range(k):
             T1 = time.time()
@@ -282,7 +282,7 @@ class WavefrontSensor:
             return_dict = manager.dict()
             Processes=[]
             for i_m in range(self.N_mod):
-                p = multiprocessing.Process(target=_GS_iterate_mod_1, args=[self, phi, Phi_m, I_target, Signal_s, i_m, return_dict])
+                p = multiprocessing.Process(target=_GS_iterate_mod, args=[self, phi, Phi_m, I_target, Signal_s, i_m, return_dict])
                 p.start()
                 Processes.append(p)
             for process in Processes:
@@ -341,7 +341,7 @@ class WavefrontSensor:
 Sensor=WavefrontSensor('wish.conf')
 # initiate custom phase and intensity filters emulating the SLM
 I0 = np.asarray(Image.open("intensities/I0_512_big.bmp"))[:, :, 0]  # extract only the first channel
-phi0 = np.asarray(Image.open("phases/calib_512_big.bmp"))
+phi0 = np.asarray(Image.open("phases/smiley_512.bmp"))[:,:,0]
 I0 = Sensor.gaussian_profile(I0, 0.5) / np.max(I0)
 phi0 = phi0 / np.max(phi0)
 # signal region for the phase
@@ -349,7 +349,8 @@ phi0_sr = np.ones(phi0.shape)  # signal region
 phi0_sr[np.where(I0 == 0)[0], np.where(I0 == 0)[1]] = 0
 phi0_sr[np.where(I0 > 0)[0], np.where(I0 > 0)[1]] = 1
 # conversion to rad
-phi0 = 2 * np.pi * (phi0 - 0.5 * np.ones(phi0.shape)) * phi0_sr
+#phi0 = 2 * np.pi * (phi0 - 0.5 * np.ones(phi0.shape)) * phi0_sr
+phi0 = 2 * np.pi * phi0
 Phi_m = []
 I_target = []
 #for k in range(Sensor.N_mod):
@@ -362,13 +363,13 @@ T0=time.time()
 A = Begin(Sensor.size_SLM, Sensor.wavelength, I0.shape[0])
 for phi_m in Phi_m:
     # define target field
-    #A = SubIntensity(I0, A)
-    #A = SubPhase(phi0 + phi_m, A)
-    #A = Fresnel(Sensor.z, A)
-    #I = np.reshape(Intensity(1, A), I0.shape)
-    A0 = np.sqrt(I0)*np.exp(1j*(phi0+ phi_m))
-    A = Sensor.FRT(A0, Sensor.z)
-    I = np.abs(A)**2
+    A = SubIntensity(I0, A)
+    A = SubPhase(phi0 + phi_m, A)
+    A = Fresnel(Sensor.z, A)
+    I = np.reshape(Intensity(1, A), I0.shape)
+    #A0 = np.sqrt(I0)*np.exp(1j*(phi0+ phi_m))
+    #A = Sensor.FRT(A0, Sensor.z)
+    #I = np.abs(A)**2
     I_target.append(I)
 T=time.time()-T0
 print(f"Took me {T} s to generate the modulation")
@@ -378,6 +379,7 @@ phi, mask = Sensor.phase_retrieval_wish(I0, I_target, Phi_m, plot=False)
 # compute RMS
 T0=time.time()
 RMS = (1 / (2 * np.pi)) * np.sqrt(np.mean(phi0_sr * (phi0 - phi) ** 2))
+FROB = np.linalg.norm(phi0-phi)
 T=time.time()-T0
 print(f'Took me {T} second on the CPU')
 phi_gpu = cupy.asarray(phi)
@@ -385,7 +387,10 @@ phi0_gpu = cupy.asarray(phi0)
 T0=time.time()
 RMS_gpu = (1/(2*np.pi))*cupy.sqrt(cupy.mean(cupy.square(phi0_gpu-phi_gpu)))
 T=time.time()-T0
+
 print(f'Took me {T} second on the GPU')
+print(f"RMS of the recovered phase is : {RMS}")
+print(f'Frobenius norm of the error is : {FROB}')
 
 fig = plt.figure()
 ax1 = fig.add_subplot(221)
