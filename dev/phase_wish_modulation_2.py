@@ -259,7 +259,7 @@ class WavefrontSensor:
             return_dict = manager.dict()
             Processes=[]
             for i_m in range(self.N_mod):
-                p = multiprocessing.Process(target=_GS_iterate_mod_1, args=[self, phi, Phi_m, I_target, Signal_s, i_m, return_dict])
+                p = multiprocessing.Process(target=_GS_iterate_mod, args=[self, phi, Phi_m, I_target, Signal_s, i_m, return_dict])
                 p.start()
                 Processes.append(p)
             for process in Processes:
@@ -332,8 +332,8 @@ class WavefrontSensor:
 
 Sensor=WavefrontSensor('wish.conf')
 # initiate custom phase and intensity filters emulating the SLM
-I0 = np.asarray(Image.open("intensities/I_anti_ring_big.bmp"))[:, :, 0]  # extract only the first channel
-phi0 = np.asarray(Image.open("phases/smiley_512.bmp"))[:,:,0]
+I0 = np.asarray(Image.open("intensities/I0_128.bmp"))[:, :, 0]  # extract only the first channel
+phi0 = np.asarray(Image.open("phases/smiley_128.bmp"))[:,:,0]
 I0 = Sensor.gaussian_profile(I0, 0.5) / np.max(I0)
 phi0 = phi0 / np.max(phi0)
 # signal region for the phase
@@ -418,4 +418,5 @@ fig.colorbar(im1, cax=cax1)
 fig.colorbar(im2, cax=cax2)
 fig.colorbar(im3, cax=cax3)
 fig.colorbar(im4, cax=cax4)
+plt.tight_layout()
 plt.show()
