@@ -405,7 +405,7 @@ T=time.time()-T0
 
 print(f'Took me {T} second on the GPU')
 print(f"RMS of the recovered phase is : {RMS}")
-print(f'Frobenius norm of the relative error is : {FROB}')
+print(f'Frobenius norm of the error is : {FROB}')
 print(f'Correlation coefficient is : {corr}')
 
 fig = plt.figure()
