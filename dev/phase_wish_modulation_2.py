@@ -134,22 +134,11 @@ class WavefrontSensor:
         y = np.linspace(0, A0.shape[1], A0.shape[1])-(A0.shape[1]/2)*np.ones(A0.shape[1])
         x, y = x / np.max(x), y / np.max(y)
         X, Y = np.meshgrid(x,y)
-        R = 0.5*self.size*np.sqrt(X**2 + Y**2)
+        R = 0.05*self.size*np.sqrt(X**2 + Y**2)
         D = np.exp(1j*k*z)/(1j*wv*z)
         Q = np.exp(1j*(k/(2*z))*R**2)
         A = D*Q*np.fft.fftshift(np.fft.fft2(A0*Q, norm="ortho"))
-        #A = signal.fftconvolve(A0, D*Q, mode='full')
         A = A/np.max(np.abs(A))
-        #x1 = np.linspace(0, A.shape[0], A.shape[0])-(A.shape[0]/2)*np.ones(A.shape[0])
-        #y1 = np.linspace(0, A.shape[1], A.shape[1])-(A.shape[1]/2)*np.ones(A.shape[1])
-        #x1, y1 = x1 / np.max(x1), y1 / np.max(y1)
-        #I = np.abs(A)**2
-        #phi = np.angle(A)
-        #interp_I = interpolate.interp2d(x1, y1, I, kind='quintic')
-        #interp_phi = interpolate.interp2d(x1, y1, phi, kind='quintic')
-        #I = np.abs(interp_I(x, y))
-        #phi = interp_phi(x, y)
-        #A = np.sqrt(I)*np.exp(1j*phi)
         return A
     def IFRT(self, A0, z: float):
         """
@@ -166,22 +155,11 @@ class WavefrontSensor:
         y = np.linspace(0, A0.shape[1], A0.shape[1])-(A0.shape[1]/2)*np.ones(A0.shape[1])
         x, y = x / np.max(x), y / np.max(y)
         X, Y = np.meshgrid(x,y)
-        R = 0.5*self.size*np.sqrt(X**2 + Y**2)
+        R = self.size*np.sqrt(X**2 + Y**2)
         D = np.exp(-1j*k*z)*(1j*wv*z)
         Q = np.exp(1j*(k/(2*z))*R**2)
         A = D*Q*np.fft.ifft2(A0*(1/Q), norm='ortho')
-        #A = signal.fftconvolve(A0, D*Q, mode='full')
         A = A/np.max(np.abs(A))
-        #x1 = np.linspace(0, A.shape[0], A.shape[0])-(A.shape[0]/2)*np.ones(A.shape[0])
-        #y1 = np.linspace(0, A.shape[1], A.shape[1])-(A.shape[1]/2)*np.ones(A.shape[1])
-        #x1, y1 = x1 / np.max(x1), y1 / np.max(y1)
-        #I = np.abs(A)**2
-        #phi = np.angle(A)
-        #interp_I = interpolate.interp2d(x1, y1, I, kind='quintic')
-        #interp_phi = interpolate.interp2d(x1, y1, phi, kind='quintic')
-        #I = np.abs(interp_I(x, y))
-        #phi = interp_phi(x, y)
-        #A = np.sqrt(I)*np.exp(1j*phi)
         return A
 
     def phase_retrieval_wish(self, I0: np.ndarray, I_target: list, Phi_m: list, unwrap: bool = False, plot: bool = True, **kwargs):
@@ -281,7 +259,7 @@ class WavefrontSensor:
             return_dict = manager.dict()
             Processes=[]
             for i_m in range(self.N_mod):
-                p = multiprocessing.Process(target=_GS_iterate_mod, args=[self, phi, Phi_m, I_target, Signal_s, i_m, return_dict])
+                p = multiprocessing.Process(target=_GS_iterate_mod_1, args=[self, phi, Phi_m, I_target, Signal_s, i_m, return_dict])
                 p.start()
                 Processes.append(p)
             for process in Processes:
@@ -354,7 +332,7 @@ class WavefrontSensor:
 
 Sensor=WavefrontSensor('wish.conf')
 # initiate custom phase and intensity filters emulating the SLM
-I0 = np.asarray(Image.open("intensities/I0_512_big.bmp"))[:, :, 0]  # extract only the first channel
+I0 = np.asarray(Image.open("intensities/I_anti_ring_big.bmp"))[:, :, 0]  # extract only the first channel
 phi0 = np.asarray(Image.open("phases/smiley_512.bmp"))[:,:,0]
 I0 = Sensor.gaussian_profile(I0, 0.5) / np.max(I0)
 phi0 = phi0 / np.max(phi0)
@@ -369,7 +347,7 @@ Phi_m = []
 I_target = []
 #for k in range(Sensor.N_mod):
 for k in range(int(Sensor.N_mod/2)):
-    phi_m = Sensor.modulate(phi0)
+    phi_m = Sensor.modulate_ternary(phi0)
     #Phi0.append(phi0-phi_m)
     Phi_m.append(phi_m)
     Phi_m.append(-phi_m)
@@ -377,13 +355,17 @@ T0=time.time()
 A = Begin(Sensor.size_SLM, Sensor.wavelength, I0.shape[0])
 for phi_m in Phi_m:
     # define target field
-    A = SubIntensity(I0, A)
-    A = SubPhase(phi0 + phi_m, A)
-    A = Fresnel(Sensor.z, A)
-    I = np.reshape(Intensity(1, A), I0.shape)
+    #A = SubIntensity(I0, A)
+    #A = SubPhase(phi0 + phi_m, A)
+    #A = Fresnel(Sensor.z, A)
+    #I = np.reshape(Intensity(1, A), I0.shape)
     #A0 = np.sqrt(I0)*np.exp(1j*(phi0+ phi_m))
-    #A = Sensor.FRT(A0, Sensor.z)
-    #I = np.abs(A)**2
+    A0 = np.sqrt(I0)*np.exp(1j*(phi0))
+    A = Sensor.FRT(A0, Sensor.z)
+    I = np.abs(A)**2
+    phi=np.angle(A)
+    plt.imshow(I)
+    plt.show()
     I_target.append(I)
 T=time.time()-T0
 print(f"Took me {T} s to generate the modulation")
@@ -392,7 +374,9 @@ I = np.mean(I_target, axis=0)
 phi, mask = Sensor.phase_retrieval_wish(I0, I_target, Phi_m, plot=False)
 # compute RMS
 T0=time.time()
-RMS = (1 / (2 * np.pi)) * np.sqrt(np.mean(phi0_sr * (phi0 - phi) ** 2))
+#RMS =min([(1 / (2 * np.pi)) * np.sqrt(np.mean(phi0_sr * (phi0 - (phi+a*np.ones(phi.shape))) ** 2)) for a in np.linspace(-np.pi, np.pi, Sensor.SLM_levels)])
+RMS =(1 / (2 * np.pi)) * np.sqrt(np.mean(phi0_sr * (phi0 - phi) ** 2))
+#FROB =min([ np.linalg.norm(phi0-(phi+a*np.ones(phi.shape))) for a in np.linspace(-np.pi, np.pi, Sensor.SLM_levels)])
 FROB = np.linalg.norm(phi0-phi)
 corr = np.corrcoef((phi0_sr*phi).flat, (phi0_sr*phi0).flat)[0, 1]
 T=time.time()-T0
