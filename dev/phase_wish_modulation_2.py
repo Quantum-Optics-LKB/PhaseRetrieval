@@ -16,7 +16,6 @@ import ast
 from scipy import signal, interpolate
 import cupy, cupyx
 import multiprocessing
-import concurrent.futures
 
 class WavefrontSensor:
     def __init__(self, cfg_path):
@@ -274,7 +273,7 @@ class WavefrontSensor:
                                      # Substitute the measured far field into the field only in the signal region
             A_s = self.IFRT(A_f, z)  # Propagate back to the near field
             pm_s = np.angle(A_s)
-            return_dic[str(k_s)] = -pm_s + Phi_m[k_s]
+            return_dic[str(k_s)] = pm_s - Phi_m[k_s]
 
         for i in range(k):
             T1 = time.time()
@@ -313,6 +312,21 @@ class WavefrontSensor:
         # generate (N/10)x(N/10) random matrices that will then be upscaled through interpolation
         h, w = int(phi.shape[0] / 5), int(phi.shape[1] / 5)
         M =  (np.ones((h, w)) - 2 * np.random.rand(h, w))  # random matrix between [-x*pi and x*pi]
+        phi_m = interpolation.zoom(M, phi.shape[0] / h)
+        phi_m = phi_m/np.max(phi_m)
+        phi_m = np.pi * x * phi_m
+        return phi_m
+    def modulate_ternary(self, phi: np.ndarray):
+        """
+        A function to randomly modulating a phase map without introducing too much high frequency noise
+        :param phi: Phase map to be modulated
+        :return: phi_m a modulated phase map to multiply to phi
+        """
+        x=self.mod_intensity
+        # generate (N/10)x(N/10) random matrices that will then be upscaled through interpolation
+        h, w = int(phi.shape[0] / 5), int(phi.shape[1] / 5)
+        M = np.array([ np.random.choice(np.array([-1,0,1]), p=[0.25, 0.5, 0.25]) for _ in range(h*w) ])# random matrix between [-x*pi and x*pi]
+        M = np.reshape(M, (h,w))
         phi_m = interpolation.zoom(M, phi.shape[0] / h)
         phi_m = phi_m/np.max(phi_m)
         phi_m = np.pi * x * phi_m
@@ -380,6 +394,7 @@ phi, mask = Sensor.phase_retrieval_wish(I0, I_target, Phi_m, plot=False)
 T0=time.time()
 RMS = (1 / (2 * np.pi)) * np.sqrt(np.mean(phi0_sr * (phi0 - phi) ** 2))
 FROB = np.linalg.norm(phi0-phi)
+corr = np.corrcoef((phi0_sr*phi).flat, (phi0_sr*phi0).flat)[0, 1]
 T=time.time()-T0
 print(f'Took me {T} second on the CPU')
 phi_gpu = cupy.asarray(phi)
@@ -390,7 +405,8 @@ T=time.time()-T0
 
 print(f'Took me {T} second on the GPU')
 print(f"RMS of the recovered phase is : {RMS}")
-print(f'Frobenius norm of the error is : {FROB}')
+print(f'Frobenius norm of the relative error is : {FROB}')
+print(f'Correlation coefficient is : {corr}')
 
 fig = plt.figure()
 ax1 = fig.add_subplot(221)
