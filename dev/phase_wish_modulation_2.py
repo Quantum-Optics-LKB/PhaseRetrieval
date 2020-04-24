@@ -16,6 +16,7 @@ import ast
 from scipy import signal, interpolate
 import cupy, cupyx
 import multiprocessing
+from scipy.ndimage import gaussian_filter
 
 class WavefrontSensor:
     def __init__(self, cfg_path):
@@ -172,30 +173,8 @@ class WavefrontSensor:
         :param unwrap : Phase unwrapping at the end
         :param plot : toggle plots
         :param threshold : Threshold for automatic mask float in [0,1] default is 1e-2
-        :return phi: The calculated phase map using Gerchberg-Saxton algorithm
+        :return phi, FROB : The calculated phase map using Gerchberg-Saxton algorithm and differences between each iterations
         """
-        k=self.N_gs
-        threshold=self.threshold
-        z=self.z
-        size = self.size
-        size_SLM = self.size_SLM
-        wavelength = self.wavelength
-        h_0, w_0 = I0.shape
-        h, w = I_target[0].shape
-        self.mask_sr = self.define_mask(I_target[0], plot)
-        self.mask_nr = np.ones(self.mask_sr.shape) - self.mask_sr
-        T0 = time.time()
-        Signal_s=[]
-        Phi=[]
-        # initiate the loop  with a flat phase
-        phi = np.zeros(I0.shape)
-        # initiate fields in the SLM plane
-        for phi_m in Phi_m:
-            signal_s = Begin(size, wavelength, h)
-            signal_s = SubIntensity(I0, signal_s)
-            Signal_s.append(signal_s)
-            Phi.append(phi)
-
         # for multiprocessing
         def _GS_iterate_mod(self, phi, Phi_m, I_target, Signal_s, k_s, return_dic):
             """
@@ -253,6 +232,30 @@ class WavefrontSensor:
             pm_s = np.angle(A_s)
             return_dic[str(k_s)] = pm_s - Phi_m[k_s]
 
+        k = self.N_gs
+        threshold = self.threshold
+        z = self.z
+        size = self.size
+        size_SLM = self.size_SLM
+        wavelength = self.wavelength
+        h_0, w_0 = I0.shape
+        h, w = I_target[0].shape
+        self.mask_sr = self.define_mask(I_target[0], plot)
+        self.mask_nr = np.ones(self.mask_sr.shape) - self.mask_sr
+        T0 = time.time()
+        Signal_s = []
+        Phi = []
+        # initiate the loop  with a flat phase
+        phi = np.zeros(I0.shape)
+        phi0_sr[np.where(I0 == 0)[0], np.where(I0 == 0)[1]] = 0
+        phi0_sr[np.where(I0 > 0)[0], np.where(I0 > 0)[1]] = 1
+        # initiate fields in the SLM plane
+        for phi_m in Phi_m:
+            signal_s = Begin(size, wavelength, h)
+            signal_s = SubIntensity(I0, signal_s)
+            Signal_s.append(signal_s)
+            Phi.append(phi)
+        FROB=[]
         for i in range(k):
             T1 = time.time()
             manager = multiprocessing.Manager()
@@ -265,7 +268,9 @@ class WavefrontSensor:
             for process in Processes:
                 process.join()
             Phi = [return_dict.get(str(_)) for _ in range(self.N_mod)]
-            phi = np.mean(np.array(Phi), axis=0)
+            phi_new = np.mean(np.array(Phi), axis=0)
+            FROB.append(np.linalg.norm(phi0_sr*(phi_new-phi)))
+            phi = phi_new
             T2 = time.time() - T1
             progress = float((i + 1) / k)
             self.update_progress(progress)
@@ -276,7 +281,7 @@ class WavefrontSensor:
         phi = np.reshape(phi, (h, w))
         T3 = time.time() - T0
         print(f"Elapsed time : {T3} s")
-        return phi, self.mask_sr
+        return phi, np.array(FROB)
 
 
     # modulation
@@ -288,10 +293,25 @@ class WavefrontSensor:
         """
         x=self.mod_intensity
         # generate (N/10)x(N/10) random matrices that will then be upscaled through interpolation
-        h, w = int(phi.shape[0] / 5), int(phi.shape[1] / 5)
+        h, w = int(phi.shape[0] / 10), int(phi.shape[1] / 10)
         M =  (np.ones((h, w)) - 2 * np.random.rand(h, w))  # random matrix between [-x*pi and x*pi]
-        phi_m = interpolation.zoom(M, phi.shape[0] / h)
-        phi_m = phi_m/np.max(phi_m)
+        phi_m = np.kron(M, np.ones((10,10)))
+        phi_m = gaussian_filter(phi_m, sigma=4)
+        phi_m = np.pi * x * phi_m
+        return phi_m
+    def modulate_binary(self, phi: np.ndarray):
+        """
+        A function to randomly modulating a phase map without introducing too much high frequency noise
+        :param phi: Phase map to be modulated
+        :return: phi_m a modulated phase map to multiply to phi
+        """
+        x=self.mod_intensity
+        # generate (N/10)x(N/10) random matrices that will then be upscaled through interpolation
+        h, w = int(phi.shape[0] / 10), int(phi.shape[1] / 10)
+        M = np.array([ np.random.choice(np.array([1,-1]), p=[0.5, 0.5]) for _ in range(h*w) ])# random matrix between [-x*pi and x*pi]
+        M = np.reshape(M, (h,w))
+        phi_m = np.kron(M, np.ones((10,10)))
+        phi_m = gaussian_filter(phi_m, sigma=4)
         phi_m = np.pi * x * phi_m
         return phi_m
     def modulate_ternary(self, phi: np.ndarray):
@@ -302,11 +322,26 @@ class WavefrontSensor:
         """
         x=self.mod_intensity
         # generate (N/10)x(N/10) random matrices that will then be upscaled through interpolation
-        h, w = int(phi.shape[0] / 5), int(phi.shape[1] / 5)
-        M = np.array([ np.random.choice(np.array([-1,0,1]), p=[0.25, 0.5, 0.25]) for _ in range(h*w) ])# random matrix between [-x*pi and x*pi]
+        h, w = int(phi.shape[0] / 10), int(phi.shape[1] / 10)
+        M = np.array([ np.random.choice(np.array([1,0, -1]), p=[0.25, 0.5, 0.25]) for _ in range(h*w) ])# random matrix between [-x*pi and x*pi]
         M = np.reshape(M, (h,w))
-        phi_m = interpolation.zoom(M, phi.shape[0] / h)
-        phi_m = phi_m/np.max(phi_m)
+        phi_m = np.kron(M, np.ones((10,10)))
+        phi_m = gaussian_filter(phi_m, sigma=4)
+        phi_m = np.pi * x * phi_m
+        return phi_m
+    def modulate_quaternary(self, phi: np.ndarray):
+        """
+        A function to randomly modulating a phase map without introducing too much high frequency noise
+        :param phi: Phase map to be modulated
+        :return: phi_m a modulated phase map to multiply to phi
+        """
+        x=self.mod_intensity
+        # generate (N/10)x(N/10) random matrices that will then be upscaled through interpolation
+        h, w = int(phi.shape[0] / 10), int(phi.shape[1] / 10)
+        M = np.array([ np.random.choice(np.array([1,0.5, -0.5,0]), p=[0.25, 0.25, 0.25, 0.25]) for _ in range(h*w) ])# random matrix between [-x*pi and x*pi]
+        M = np.reshape(M, (h,w))
+        phi_m = np.kron(M, np.ones((10,10)))
+        phi_m = gaussian_filter(phi_m, sigma=4)
         phi_m = np.pi * x * phi_m
         return phi_m
 
@@ -332,8 +367,8 @@ class WavefrontSensor:
 
 Sensor=WavefrontSensor('wish.conf')
 # initiate custom phase and intensity filters emulating the SLM
-I0 = np.asarray(Image.open("intensities/I0_128.bmp"))[:, :, 0]  # extract only the first channel
-phi0 = np.asarray(Image.open("phases/smiley_128.bmp"))[:,:,0]
+I0 = np.asarray(Image.open("intensities/I0_500.bmp"))[:, :, 0]  # extract only the first channel
+phi0 = np.asarray(Image.open("phases/smiley_500.bmp"))[:,:,0]
 I0 = Sensor.gaussian_profile(I0, 0.5) / np.max(I0)
 phi0 = phi0 / np.max(phi0)
 # signal region for the phase
@@ -347,37 +382,34 @@ Phi_m = []
 I_target = []
 #for k in range(Sensor.N_mod):
 for k in range(int(Sensor.N_mod/2)):
-    phi_m = Sensor.modulate_ternary(phi0)
-    #Phi0.append(phi0-phi_m)
+    phi_m = Sensor.modulate(phi0)
     Phi_m.append(phi_m)
     Phi_m.append(-phi_m)
 T0=time.time()
 A = Begin(Sensor.size_SLM, Sensor.wavelength, I0.shape[0])
 for phi_m in Phi_m:
     # define target field
-    #A = SubIntensity(I0, A)
-    #A = SubPhase(phi0 + phi_m, A)
-    #A = Fresnel(Sensor.z, A)
-    #I = np.reshape(Intensity(1, A), I0.shape)
+    A = SubIntensity(I0, A)
+    A = SubPhase(phi0 + phi_m, A)
+    A = Fresnel(Sensor.z, A)
+    I = np.reshape(Intensity(1, A), I0.shape)
     #A0 = np.sqrt(I0)*np.exp(1j*(phi0+ phi_m))
-    A0 = np.sqrt(I0)*np.exp(1j*(phi0))
-    A = Sensor.FRT(A0, Sensor.z)
-    I = np.abs(A)**2
-    phi=np.angle(A)
-    plt.imshow(I)
-    plt.show()
+    #A0 = np.sqrt(I0)*np.exp(1j*(phi0))
+    #A = Sensor.FRT(A0, Sensor.z)
+    #I = np.abs(A)**2
+    #phi=np.angle(A)
     I_target.append(I)
 T=time.time()-T0
 print(f"Took me {T} s to generate the modulation")
 I_target = np.array(I_target)
 I = np.mean(I_target, axis=0)
-phi, mask = Sensor.phase_retrieval_wish(I0, I_target, Phi_m, plot=False)
+phi, FROB = Sensor.phase_retrieval_wish(I0, I_target, Phi_m, plot=False)
 # compute RMS
 T0=time.time()
 #RMS =min([(1 / (2 * np.pi)) * np.sqrt(np.mean(phi0_sr * (phi0 - (phi+a*np.ones(phi.shape))) ** 2)) for a in np.linspace(-np.pi, np.pi, Sensor.SLM_levels)])
 RMS =(1 / (2 * np.pi)) * np.sqrt(np.mean(phi0_sr * (phi0 - phi) ** 2))
 #FROB =min([ np.linalg.norm(phi0-(phi+a*np.ones(phi.shape))) for a in np.linspace(-np.pi, np.pi, Sensor.SLM_levels)])
-FROB = np.linalg.norm(phi0-phi)
+frob = np.linalg.norm(phi0_sr*(phi0-phi))
 corr = np.corrcoef((phi0_sr*phi).flat, (phi0_sr*phi0).flat)[0, 1]
 T=time.time()-T0
 print(f'Took me {T} second on the CPU')
@@ -389,14 +421,15 @@ T=time.time()-T0
 
 print(f'Took me {T} second on the GPU')
 print(f"RMS of the recovered phase is : {RMS}")
-print(f'Frobenius norm of the error is : {FROB}')
+print(f'Frobenius norm of the error is : {frob}')
 print(f'Correlation coefficient is : {corr}')
 
 fig = plt.figure()
-ax1 = fig.add_subplot(221)
-ax2 = fig.add_subplot(222)
-ax3 = fig.add_subplot(223)
-ax4 = fig.add_subplot(224)
+ax1 = fig.add_subplot(331)
+ax2 = fig.add_subplot(332)
+ax3 = fig.add_subplot(333)
+ax4 = fig.add_subplot(334)
+ax5 = fig.add_subplot(336)
 divider1 = make_axes_locatable(ax1)
 cax1 = divider1.append_axes('right', size='5%', pad=0.05)
 divider2 = make_axes_locatable(ax2)
@@ -414,9 +447,12 @@ ax2.set_title("Initial phase")
 ax3.set_title("Mean propagated intensity")
 ax4.set_title("Mean retrieved phase")
 ax4.text(8, 18, f"RMS = {round(RMS, ndigits=3)}", bbox={'facecolor': 'white', 'pad': 3})
+ax5.plot(FROB)
+ax5.set_title("Difference between each iteration")
+ax5.set_ylabel("Difference in Frobenius norm")
+ax5.set_xlabel("Iteration")
 fig.colorbar(im1, cax=cax1)
 fig.colorbar(im2, cax=cax2)
 fig.colorbar(im3, cax=cax3)
 fig.colorbar(im4, cax=cax4)
-plt.tight_layout()
 plt.show()
