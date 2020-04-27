@@ -67,10 +67,6 @@ class WavefrontSensor:
         """
         threshold = self.threshold
         h, w = I.shape
-        # compute FT
-        I_tf = np.fft.fft2(I)
-        I_tf = np.abs(np.fft.fftshift(I_tf))
-        freq = np.fft.fftfreq(h, d= self.size / h)
         mask_sr = np.zeros((h, w))
         # detect outermost non zero target intensity point
         non_zero = np.array(np.where(I > self.threshold))
@@ -130,15 +126,16 @@ class WavefrontSensor:
         """
         wv = self.wavelength
         k=2*np.pi/wv
+        dk=1/self.size
         #k=1/wv
         x = np.linspace(0, A0.shape[0], A0.shape[0])-(A0.shape[0]/2)*np.ones(A0.shape[0])
         y = np.linspace(0, A0.shape[1], A0.shape[1])-(A0.shape[1]/2)*np.ones(A0.shape[1])
         x, y = x / np.max(x), y / np.max(y)
         X, Y = np.meshgrid(x,y)
-        R = 0.05*self.size*np.sqrt(X**2 + Y**2)
+        R = 1/np.sqrt(2)*self.size*np.sqrt(X**2 + Y**2)
         D = np.exp(1j*k*z)/(1j*wv*z)
         Q = np.exp(1j*(k/(2*z))*R**2)
-        A = D*Q*np.fft.fftshift(np.fft.fft2(A0*Q, norm="ortho"))
+        A = D*Q*np.fft.ifftshift(np.fft.fftshift(np.fft.fft2(A0*Q, norm="ortho")))
         A = A/np.max(np.abs(A))
         return A
     def IFRT(self, A0, z: float):
@@ -156,7 +153,7 @@ class WavefrontSensor:
         y = np.linspace(0, A0.shape[1], A0.shape[1])-(A0.shape[1]/2)*np.ones(A0.shape[1])
         x, y = x / np.max(x), y / np.max(y)
         X, Y = np.meshgrid(x,y)
-        R = self.size*np.sqrt(X**2 + Y**2)
+        R = 1/np.sqrt(2)*self.size*np.sqrt(X**2 + Y**2)
         D = np.exp(-1j*k*z)*(1j*wv*z)
         Q = np.exp(1j*(k/(2*z))*R**2)
         A = D*Q*np.fft.ifft2(A0*(1/Q), norm='ortho')
@@ -193,14 +190,14 @@ class WavefrontSensor:
             # submit source intensity
             signal_s = SubIntensity(I0, signal_s)
             # signal_s = SubPhase(phi, signal_s)
-            signal_f = Forvard(z, signal_s)  # Propagate to the far field
-            #signal_f = Fresnel(z, signal_s)  # Propagate to the far field
+            #signal_s = Forvard(z, signal_s)  # Propagate to the far field
+            signal_s = Fresnel(z, signal_s)  # Propagate to the far field
             # interpolate to target size
-            signal_f = Interpol(size, h, 0, 0, 0, 1, signal_f)
-            I_f_old = np.reshape(Intensity(1, signal_f), (h, w))  # retrieve far field intensity
-            signal_f = SubIntensity(I_target[k_s] * self.mask_sr + I_f_old * self.mask_nr,
-                                    signal_f)  # Substitute the measured far field into the field only in the signal region
-            signal_s = Forvard(-z, signal_f)  # Propagate back to the near field
+            signal_s = Interpol(size, h, 0, 0, 0, 1, signal_s)
+            I_f_old = np.reshape(Intensity(1, signal_s), (h, w))  # retrieve far field intensity
+            signal_s = SubIntensity(I_target[k_s] * self.mask_sr + I_f_old * self.mask_nr,
+                                    signal_s)  # Substitute the measured far field into the field only in the signal region
+            signal_s = Forvard(-z, signal_s)  # Propagate back to the near field
             #signal_s = Fresnel(-z, signal_f)  # Propagate back to the near field
             # interpolate to source size
             signal_s = Interpol(size, h_0, 0, 0, 0, 1, signal_s)
@@ -368,7 +365,7 @@ class WavefrontSensor:
 Sensor=WavefrontSensor('wish.conf')
 # initiate custom phase and intensity filters emulating the SLM
 I0 = np.asarray(Image.open("intensities/I0_500.bmp"))[:, :, 0]  # extract only the first channel
-phi0 = np.asarray(Image.open("phases/smiley_500.bmp"))[:,:,0]
+phi0 = np.asarray(Image.open("phases/calib_500.bmp"))
 I0 = Sensor.gaussian_profile(I0, 0.5) / np.max(I0)
 phi0 = phi0 / np.max(phi0)
 # signal region for the phase
@@ -380,11 +377,11 @@ phi0_sr[np.where(I0 > 0)[0], np.where(I0 > 0)[1]] = 1
 phi0 = 2 * np.pi * phi0
 Phi_m = []
 I_target = []
-#for k in range(Sensor.N_mod):
-for k in range(int(Sensor.N_mod/2)):
+for k in range(Sensor.N_mod):
+#for k in range(int(Sensor.N_mod/2)):
     phi_m = Sensor.modulate(phi0)
     Phi_m.append(phi_m)
-    Phi_m.append(-phi_m)
+    #Phi_m.append(-phi_m)
 T0=time.time()
 A = Begin(Sensor.size_SLM, Sensor.wavelength, I0.shape[0])
 for phi_m in Phi_m:
@@ -396,7 +393,10 @@ for phi_m in Phi_m:
     #A0 = np.sqrt(I0)*np.exp(1j*(phi0+ phi_m))
     #A0 = np.sqrt(I0)*np.exp(1j*(phi0))
     #A = Sensor.FRT(A0, Sensor.z)
+    #A = Sensor.IFRT(A, Sensor.z)
     #I = np.abs(A)**2
+    #plt.imshow(np.angle(A))
+    #plt.show()
     #phi=np.angle(A)
     I_target.append(I)
 T=time.time()-T0
