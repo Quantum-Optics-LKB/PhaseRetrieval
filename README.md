@@ -98,9 +98,17 @@ After closing the plot, it will then run displaying a progress bar until it plot
 ![plot_result](/images/plot_result.png)
 
 The recovered phase, target intensity, propagated intensity (recovered phase propagated to the image plane), the propagated phase as well as a cut of the propagated phase along the x axis. Note that the RMS between the reconstructed intensity and the target intensity and the conversion efficiency are displayed in the top left corner.
-The `anti_ring` folder should now contain a subfolder named `results` with the images saved as PNG, a text file `metrics.txt` containing the metrics of the image : correlation coefficient between target intensity and final intensity, RMS and conversion efficiency. If you chose to run several modulations (i.e the GS loop starts with `N_mod` random phases and then averages the recovered phase), it will also contain the `N_mod` recovered phases saved as a numpy array `Phi.npy`.
+The `anti_ring` folder should now contain a subfolder named `results` with the images saved as PNG, a text file `metrics.txt` containing the metrics of the image : correlation coefficient between target intensity and final intensity, RMS and conversion efficiency. If you chose to run several modulations (i.e the GS loop starts with `N_mod` random phases and then averages the recovered phase), it will also contain the `N_mod` recovered phases saved as a numpy array `Phi.npy`. Finally, the configuration file is also saved in the results folder to recall the computation parameters.
+The `metrics.txt` should look like this :
+```
+RMS for the intensity is : 0.11794289765510044 
+Correlation between target intensity and final intensity is : 0.9699578500524106 
+Conversion efficiency is : 0.9911308123375036 
+```
+The `results` folder :
+![results_folder](/images/results_folder.png)
 
-
+The results folder 
 **CONTRIBUTION**
 
 If you want to contribute, you are more than welcome to do so. Simply **create a new branch with you name on it**. If you do not know how to do it, simply use the GitHub webpage and click on "branches" and type the name of the branch you want to create:
