@@ -162,7 +162,7 @@ def main():
         signal_s = SubPhase(phi0, signal_s)
         for i in range(k):
             T1 = time.time()
-            signal_f = Forvard(z, signal_s)  # Propagate to the far field
+            signal_f = Fresnel(z, signal_s)  # Propagate to the far field
             # interpolate to target size
             signal_f = Interpol(size, h, 0, 0, 0, 1, signal_f)
             I_f_old = np.reshape(Intensity(1, signal_f), (h, w))  # retrieve far field intensity
@@ -447,6 +447,7 @@ def main():
     freq = np.fft.fftfreq(h, d=size / h)
     # Compute RMS
     RMS = np.sqrt(np.mean(rms_sr * (I - I_final) ** 2))
+    corr = np.corrcoef((rms_sr*I).flat, (rms_sr*I_final).flat)[0, 1]
     # Compute intensity conversion efficiency
     conv_eff = np.sum(rms_sr * I_final) / np.sum(I0)
     vmin = np.min(mask_sr * I0)
@@ -458,12 +459,11 @@ def main():
     plt.imsave(f"{results_path}/phi0.png", phi0, cmap='viridis')
     plt.imsave(f"{results_path}/phi.png", phi, cmap='viridis')
     plt.imsave(f"{results_path}/phi_final.png", phi_final, cmap='viridis')
-    f_rms = open(f"{results_path}/RMS_intensity.txt", "w+")
+    f_rms = open(f"{results_path}/metrics.txt", "w+")
     f_rms.write(f"RMS for the intensity is : {RMS}")
+    f_rms.write(f"Correlation between target intensity and final intensity is : {corr}")
+    f_rms.write(f"Conversion efficiency in the signal region is : {conv_eff}")
     f_rms.close()
-    f_iconv = open(f"{results_path}/conv_eff.txt", "w+")
-    f_iconv.write(f"Conversion efficiency in the signal region is : {conv_eff}")
-    f_iconv.close()
     f_cfg = open(cfg_path)
     config = f_cfg.read()
     f_cfg.close()

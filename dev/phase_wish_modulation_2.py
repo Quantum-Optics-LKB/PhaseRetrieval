@@ -125,17 +125,23 @@ class WavefrontSensor:
         :return: I, phi : Propagated field
         """
         wv = self.wavelength
-        k=2*np.pi/wv
-        dk=1/self.size
+        k=1/wv
         #k=1/wv
-        x = np.linspace(0, A0.shape[0], A0.shape[0])-(A0.shape[0]/2)*np.ones(A0.shape[0])
-        y = np.linspace(0, A0.shape[1], A0.shape[1])-(A0.shape[1]/2)*np.ones(A0.shape[1])
+        N=A0.shape[0]
+        x = np.linspace(0, N-1, N)-(N/2)*np.ones(N)
+        y = np.linspace(0, N-1, N)-(N/2)*np.ones(N)
         x, y = x / np.max(x), y / np.max(y)
-        X, Y = np.meshgrid(x,y)
-        R = 1/np.sqrt(2)*self.size*np.sqrt(X**2 + Y**2)
+        d1 = self.size/N #pitch of the SLM
+        X1 = self.size*np.meshgrid(x,y)[0]
+        Y1 = self.size*np.meshgrid(x,y)[1]
+        X2 = (1/(d1*wv*z))*np.meshgrid(x,y)[0]
+        Y2 = (1/(d1*wv*z))*np.meshgrid(x,y)[1]
+        R1 = np.sqrt(X1**2 + Y1**2)
+        R2 = np.sqrt(X2**2 + Y2**2)
         D = np.exp(1j*k*z)/(1j*wv*z)
-        Q = np.exp(1j*(k/(2*z))*R**2)
-        A = D*Q*np.fft.ifftshift(np.fft.fftshift(np.fft.fft2(A0*Q, norm="ortho")))
+        Q1 = np.exp(1j*(k/(2*z))*R1**2)
+        Q2 = np.exp(1j*(k/(2*z))*R2**2)
+        A = D*Q2*(d1**2)*np.fft.fftshift(np.fft.fft2(np.fft.fftshift(A0*Q1)))
         A = A/np.max(np.abs(A))
         return A
     def IFRT(self, A0, z: float):
@@ -147,16 +153,23 @@ class WavefrontSensor:
         :return: I, phi : Propagated field
         """
         wv = self.wavelength
-        k=2*np.pi/wv
-        #k=1/wv
-        x = np.linspace(0, A0.shape[0], A0.shape[0])-(A0.shape[0]/2)*np.ones(A0.shape[0])
-        y = np.linspace(0, A0.shape[1], A0.shape[1])-(A0.shape[1]/2)*np.ones(A0.shape[1])
+        k = 1 / wv
+        N = A0.shape[0]
+        x = np.linspace(0, N - 1, N) - (N / 2) * np.ones(N)
+        y = np.linspace(0, N - 1, N) - (N / 2) * np.ones(N)
         x, y = x / np.max(x), y / np.max(y)
-        X, Y = np.meshgrid(x,y)
-        R = 1/np.sqrt(2)*self.size*np.sqrt(X**2 + Y**2)
-        D = np.exp(-1j*k*z)*(1j*wv*z)
-        Q = np.exp(1j*(k/(2*z))*R**2)
-        A = D*Q*np.fft.ifft2(A0*(1/Q), norm='ortho')
+        d1 = self.size / N
+        d2 = wv*z/self.size
+        X1 = self.size * np.meshgrid(x, y)[0]
+        Y1 = self.size * np.meshgrid(x, y)[1]
+        X2 = (1 / (d1 * wv * z)) * np.meshgrid(x, y)[0]
+        Y2 = (1 / (d1 * wv * z)) * np.meshgrid(x, y)[1]
+        R1 = np.sqrt(X1 ** 2 + Y1 ** 2)
+        R2 = np.sqrt(X2 ** 2 + Y2 ** 2)
+        D = np.exp(1j * k * z) / (1j * wv * z)
+        Q1 = np.exp(1j * (k / (2 * z)) * R1 ** 2)
+        Q2 = np.exp(-1j * (k / (2 * z)) * R2 ** 2)
+        A = D*Q1* d2**2 * np.fft.ifftshift(np.fft.ifft2(np.fft.ifftshift(A0*Q2)))
         A = A/np.max(np.abs(A))
         return A
 
@@ -226,7 +239,7 @@ class WavefrontSensor:
             A_f = np.sqrt(I_target[k_s] * self.mask_sr + I_f_old * self.mask_nr)*np.exp(1j*np.angle(A_f))
                                      # Substitute the measured far field into the field only in the signal region
             A_s = self.IFRT(A_f, z)  # Propagate back to the near field
-            pm_s = np.angle(A_s)
+            pm_s = np.reshape(PhaseUnwrap(np.angle(A_s)), A_s.shape)
             return_dic[str(k_s)] = pm_s - Phi_m[k_s]
 
         k = self.N_gs
@@ -365,7 +378,7 @@ class WavefrontSensor:
 Sensor=WavefrontSensor('wish.conf')
 # initiate custom phase and intensity filters emulating the SLM
 I0 = np.asarray(Image.open("intensities/I0_500.bmp"))[:, :, 0]  # extract only the first channel
-phi0 = np.asarray(Image.open("phases/calib_500.bmp"))
+phi0 = np.asarray(Image.open("phases/smiley_500.bmp"))[:,:,0]
 I0 = Sensor.gaussian_profile(I0, 0.5) / np.max(I0)
 phi0 = phi0 / np.max(phi0)
 # signal region for the phase
@@ -397,7 +410,6 @@ for phi_m in Phi_m:
     #I = np.abs(A)**2
     #plt.imshow(np.angle(A))
     #plt.show()
-    #phi=np.angle(A)
     I_target.append(I)
 T=time.time()-T0
 print(f"Took me {T} s to generate the modulation")
@@ -405,21 +417,22 @@ I_target = np.array(I_target)
 I = np.mean(I_target, axis=0)
 phi, FROB = Sensor.phase_retrieval_wish(I0, I_target, Phi_m, plot=False)
 # compute RMS
-T0=time.time()
+
 #RMS =min([(1 / (2 * np.pi)) * np.sqrt(np.mean(phi0_sr * (phi0 - (phi+a*np.ones(phi.shape))) ** 2)) for a in np.linspace(-np.pi, np.pi, Sensor.SLM_levels)])
 RMS =(1 / (2 * np.pi)) * np.sqrt(np.mean(phi0_sr * (phi0 - phi) ** 2))
 #FROB =min([ np.linalg.norm(phi0-(phi+a*np.ones(phi.shape))) for a in np.linspace(-np.pi, np.pi, Sensor.SLM_levels)])
 frob = np.linalg.norm(phi0_sr*(phi0-phi))
 corr = np.corrcoef((phi0_sr*phi).flat, (phi0_sr*phi0).flat)[0, 1]
-T=time.time()-T0
-print(f'Took me {T} second on the CPU')
-phi_gpu = cupy.asarray(phi)
-phi0_gpu = cupy.asarray(phi0)
-T0=time.time()
-RMS_gpu = (1/(2*np.pi))*cupy.sqrt(cupy.mean(cupy.square(phi0_gpu-phi_gpu)))
-T=time.time()-T0
+#T0=time.time()
+#phi_fr_cpu = np.fft.fft2(phi)
+#T=time.time()-T0
+#print(f'Took me {T} second on the CPU')
+#phi_gpu = cupy.asarray(phi)
+#T0=time.time()
+#phi_ft_gpu = cupy.fft.fft2(phi_gpu)
+#T=time.time()-T0
+#print(f'Took me {T} second on the GPU')
 
-print(f'Took me {T} second on the GPU')
 print(f"RMS of the recovered phase is : {RMS}")
 print(f'Frobenius norm of the error is : {frob}')
 print(f'Correlation coefficient is : {corr}')
