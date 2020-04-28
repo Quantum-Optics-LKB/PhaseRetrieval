@@ -1,0 +1,4 @@
+#Simply run the following command line to execute the code :
+python3 compute_cgh.py I_anti_ring_big.bmp I0_512_big.bmp cgh_conf.conf 
+
+

@@ -1,0 +1,3 @@
+RMS for the intensity is : 0.11794289765510044 
+Correlation between target intensity and final intensity is : 0.9699578500524106 
+Conversion efficiency is : 0.9911308123375036 
