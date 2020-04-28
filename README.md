@@ -97,7 +97,7 @@ This mask will be the signal region where the intensity is imposed at each GS it
 After closing the plot, it will then run displaying a progress bar until it plots the final results like so :
 ![plot_result](/images/plot_result.png)
 
-Note that the RMS between the reconstructed intensity and the target intensity and the conversion efficiency are displayed in the top left corner.
+The recovered phase, target intensity, propagated intensity (recovered phase propagated to the image plane), the propagated phase as well as a cut of the propagated phase along the x axis. Note that the RMS between the reconstructed intensity and the target intensity and the conversion efficiency are displayed in the top left corner.
 The `anti_ring` folder should now contain a subfolder named `results` with the images saved as PNG, a text file `metrics.txt` containing the metrics of the image : correlation coefficient between target intensity and final intensity, RMS and conversion efficiency. If you chose to run several modulations (i.e the GS loop starts with `N_mod` random phases and then averages the recovered phase), it will also contain the `N_mod` recovered phases saved as a numpy array `Phi.npy`.
 
 
