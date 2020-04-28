@@ -79,23 +79,26 @@ For Fourier computations reasons, the images must contain a "border" of zero to 
 
 The programm then outputs the results in a folder named "results_{time}" where time is the time at which the code ran. If an `-output` path was specified, the results will be written here. The code outputs `I`, `I0` (as PNG) and the calculated phase map / intensity map (as PNG). It also outputs a file named `rms_intensity.txt` which contains the RMS between the target image and propagated intensity map.
 
-**Example :** The example can be downloaded [here](/examples/harambe)
-The target intensity and initial phase are the following :
-![Petitangepartitroptôt](/images/harambe_512.bmp)
-![calib_phase](/images/calib_512.bmp)
+**Example :** The example can be downloaded [here](/examples/anti_ring)
+The target intensity and source intensities are the following :
+![anti_ring](/images/I_anti_ring_big.bmp)
+![source_phase](/images/I0_512_big.bmp)
 
 Now run the command :
 ```console
-toto@pcdetoto:~/PathtotheplaceIwant/$ python compute_cgh.py harambe_512.bmp I0.bmp cgh_conf.conf -output results 
+toto@pcdetoto:~/PathtotheplaceIwant/$ python3 compute_cgh.py I_anti_ring_big.bmp I0_512_big.bmp cgh_conf.conf -output results
 ```
+
 The program should plot the following image of the auto defined mask for you to check :
 ![plot_sr](/images/plot_sr.png)
 
-After closing the plot, it will then run until it plots the final results like so :
+This mask will be the signal region where the intensity is imposed at each GS iteration.
+
+After closing the plot, it will then run displaying a progress bar until it plots the final results like so :
 ![plot_result](/images/plot_result.png)
 
-Note that the RMS between the reconstructed intensity and the target intensity is displayed in the top left corner.
-The `harambe` folder should now contain a subfolder named `results` with the images saved as PNG. The code also computes the intensity conversion efficiency. 
+Note that the RMS between the reconstructed intensity and the target intensity and the conversion efficiency are displayed in the top left corner.
+The `anti_ring` folder should now contain a subfolder named `results` with the images saved as PNG, a text file `metrics.txt` containing the metrics of the image : correlation coefficient between target intensity and final intensity, RMS and conversion efficiency. If you chose to run several modulations (i.e the GS loop starts with `N_mod` random phases and then averages the recovered phase), it will also contain the `N_mod` recovered phases saved as a numpy array `Phi.npy`.
 
 
 **CONTRIBUTION**
