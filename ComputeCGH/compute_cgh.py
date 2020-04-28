@@ -203,6 +203,7 @@ def main():
         h, w = int(phi.shape[0] / 10), int(phi.shape[1] / 10)
         M = np.pi * (x * (np.ones((h, w)) - 2 * np.random.rand(h, w, )))  # random matrix between [-x*pi and x*pi]
         phi_m = interpolation.zoom(M, phi.shape[0] / h)
+        phi_m = phi_m/np.max(phi_m)
         phi_m = phi_m * np.pi  # bring phase between [-pi.pi]
         return phi_m
 
@@ -426,7 +427,7 @@ def main():
         print(f"Modulation done. Time elapsed {T} s")
     Phi = np.array(Phi)
     # save this array for later processing
-    np.save("Phi", Phi)
+    np.save(f"{results_path}/Phi", Phi)
     Mask = np.array(Mask)
     phi = np.mean(Phi, axis=0)
 
@@ -460,9 +461,9 @@ def main():
     plt.imsave(f"{results_path}/phi.png", phi, cmap='viridis')
     plt.imsave(f"{results_path}/phi_final.png", phi_final, cmap='viridis')
     f_rms = open(f"{results_path}/metrics.txt", "w+")
-    f_rms.write(f"RMS for the intensity is : {RMS}")
-    f_rms.write(f"Correlation between target intensity and final intensity is : {corr}")
-    f_rms.write(f"Conversion efficiency in the signal region is : {conv_eff}")
+    f_rms.write(f"RMS for the intensity is : {RMS} \n")
+    f_rms.write(f"Correlation between target intensity and final intensity is : {corr} \n")
+    f_rms.write(f"Conversion efficiency is : {conv_eff} \n")
     f_rms.close()
     f_cfg = open(cfg_path)
     config = f_cfg.read()
@@ -488,7 +489,7 @@ def main():
         divider4 = make_axes_locatable(ax4)
         cax4 = divider4.append_axes('right', size='5%', pad=0.05)
         im1 = ax1.imshow(phi, cmap="viridis", vmin=-np.pi, vmax=np.pi)
-        ax1.set_title(f"Mean reconstructed phase")
+        ax1.set_title(f"Reconstructed phase")
         fig.colorbar(im1, cax=cax1)
         im2 = ax2.imshow(I, cmap="viridis", vmin=vmin, vmax=vmax)
         ax2.set_title("Target intensity")
@@ -497,7 +498,7 @@ def main():
         # ax3.imshow(np.ones(rms_sr.shape)-rms_sr,cmap='Greys', alpha=0.4) #grey over non signal region
         ax3.text(8, 18, f"RMS = {round(RMS, ndigits=3)} CONV = {round(conv_eff, ndigits=3)}",
                  bbox={'facecolor': 'white', 'pad': 3})
-        ax3.set_title("Propagated intensity (with mean recontructed phase)")
+        ax3.set_title("Propagated intensity (with recontructed phase)")
         fig.colorbar(im3, cax=cax3)
         # extent=[min(freq), max(freq), min(freq), max(freq)]
         # im4 = ax4.imshow(phi_tf, cmap="viridis", extent=extent)
@@ -506,7 +507,7 @@ def main():
         fig.colorbar(im4, cax=cax4)
         X = np.linspace(0, h - 1, h)
         ax5.plot(X, phi_final_cut)
-        ax5.set_title("Phase after propagation")
+        ax5.set_title("Phase after propagation (cut along x axis)")
         ax5.set_xlabel("Horizontal index")
         ax5.set_ylabel("Phase in rad")
         plt.show()
