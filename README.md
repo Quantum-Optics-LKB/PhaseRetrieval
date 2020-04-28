@@ -107,8 +107,7 @@ Conversion efficiency is : 0.9911308123375036
 ```
 The `results` folder :
 ![results_folder](/images/results_folder.png)
-
-The results folder 
+ 
 **CONTRIBUTION**
 
 If you want to contribute, you are more than welcome to do so. Simply **create a new branch with you name on it**. If you do not know how to do it, simply use the GitHub webpage and click on "branches" and type the name of the branch you want to create:
