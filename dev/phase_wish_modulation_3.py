@@ -393,7 +393,7 @@ class WavefrontSensor:
         print(f"Took me {T} s to generate the modulation")
         I_target = np.array(I_target)
         return I_target, Phi_m
-Sensor=WavefrontSensor('wish.conf')
+Sensor=WavefrontSensor('wish_1.conf')
 # initiate custom phase and intensity filters emulating the SLM
 I0 = np.asarray(Image.open("intensities/I0_500.bmp"))[:, :, 0]  # extract only the first channel
 phi0 = np.asarray(Image.open("phases/smiley_500.bmp"))[:,:,0]

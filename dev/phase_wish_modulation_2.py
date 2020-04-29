@@ -203,17 +203,17 @@ class WavefrontSensor:
             # submit source intensity
             signal_s = SubIntensity(I0, signal_s)
             # signal_s = SubPhase(phi, signal_s)
-            #signal_s = Forvard(z, signal_s)  # Propagate to the far field
-            signal_s = Fresnel(z, signal_s)  # Propagate to the far field
+            signal_s = Forvard(z, signal_s)  # Propagate to the far field
+            #signal_s = Fresnel(z, signal_s)  # Propagate to the far field
             # interpolate to target size
-            signal_s = Interpol(size, h, 0, 0, 0, 1, signal_s)
+            signal_s = Interpol(self.size, I_target[0].shape[0], 0, 0, 0, 1, signal_s)
             I_f_old = np.reshape(Intensity(1, signal_s), (h, w))  # retrieve far field intensity
             signal_s = SubIntensity(I_target[k_s] * self.mask_sr + I_f_old * self.mask_nr,
                                     signal_s)  # Substitute the measured far field into the field only in the signal region
             signal_s = Forvard(-z, signal_s)  # Propagate back to the near field
             #signal_s = Fresnel(-z, signal_f)  # Propagate back to the near field
             # interpolate to source size
-            signal_s = Interpol(size, h_0, 0, 0, 0, 1, signal_s)
+            signal_s = Interpol(self.size_SLM, phi.shape[0], 0, 0, 0, 1, signal_s)
             signal_s = SubIntensity(I0, signal_s)  # Substitute the measured near field into the field
             pm_s = np.reshape(Phase(signal_s), I0.shape)
             Signal_s[k_s] = signal_s
@@ -407,8 +407,6 @@ for phi_m in Phi_m:
     #A = Sensor.FRT(A0, Sensor.z)
     #A = Sensor.IFRT(A, Sensor.z)
     #I = np.abs(A)**2
-    #plt.imshow(np.angle(A))
-    #plt.show()
     I_target.append(I)
 T=time.time()-T0
 print(f"Took me {T} s to generate the modulation")
