@@ -400,7 +400,7 @@ for phi_m in Phi_m:
     # define target field
     A = SubIntensity(I0, A)
     A = SubPhase(phi0 + phi_m, A)
-    A = Fresnel(Sensor.z, A)
+    A = Forvard(Sensor.z, A)
     I = np.reshape(Intensity(1, A), I0.shape)
     #A0 = np.sqrt(I0)*np.exp(1j*(phi0+ phi_m))
     #A0 = np.sqrt(I0)*np.exp(1j*(phi0))
