@@ -239,7 +239,7 @@ class WavefrontSensor:
             A_f = np.sqrt(I_target[k_s] * self.mask_sr + I_f_old * self.mask_nr)*np.exp(1j*np.angle(A_f))
                                      # Substitute the measured far field into the field only in the signal region
             A_s = self.IFRT(A_f, z)  # Propagate back to the near field
-            pm_s = np.reshape(PhaseUnwrap(np.angle(A_s)), A_s.shape)
+            pm_s = np.angle(A_s)
             return_dic[str(k_s)] = pm_s - Phi_m[k_s]
 
         k = self.N_gs

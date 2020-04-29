@@ -14,7 +14,7 @@ import sys
 import configparser
 import ast
 from scipy import signal, interpolate
-import cupy, cupyx
+import cupy as cp
 import multiprocessing
 from scipy.ndimage import gaussian_filter, zoom
 
@@ -146,6 +146,35 @@ class WavefrontSensor:
             #A = D * ((N*d1) ** 2) * np.fft.fftshift(np.fft.ifft2(np.fft.ifftshift(A0 ), norm='ortho'))
         #A = A/np.max(np.abs(A))
         return A
+    def FRT_gpu(self, A0, d1, z: float):
+        """
+        Implements propagation using Fresnel diffraction
+        :param I0: Intensity to propagate
+        :param phi0: Phase of the field
+        :param z : Propagation distance in metre
+        :return: I, phi : Propagated field
+        """
+        wv = self.wavelength
+        k = 2*np.pi / wv
+        N = A0.shape[0]
+        x = np.linspace(0, N - 1, N) - (N / 2) * np.ones(N)
+        y = np.linspace(0, N - 1, N) - (N / 2) * np.ones(N)
+        d2 = wv * z / (N*d1)
+        X1, Y1 = d1 * np.meshgrid(x, y)[0], d1 * np.meshgrid(x, y)[1]
+        X2, Y2 = d2 * np.meshgrid(x, y)[0], d2 * np.meshgrid(x, y)[1]
+        R1 = np.sqrt(X1 ** 2 + Y1 ** 2)
+        R2 = np.sqrt(X2 ** 2 + Y2 ** 2)
+        D = 1 /(1j*wv*abs(z))
+        Q1 = np.exp(1j*(k/(2*z))*R1**2)
+        Q2 = np.exp(1j*(k/(2*z))*R2**2)
+        if z >=0:
+            A =cp.array(D * Q2 * (d1**2)) * cp.fft.fftshift(cp.fft.fft2(cp.fft.ifftshift(cp.array(A0 * Q1)), norm='ortho'))
+            #A = D * (d1**2) * np.fft.fftshift(np.fft.fft2(np.fft.ifftshift(A0 ), norm='ortho'))
+        elif z<0:
+            A =cp.array(D * Q2 * ((N*d1) ** 2)) * cp.fft.fftshift(cp.fft.ifft2(cp.fft.ifftshift(cp.array(A0 * Q1)), norm='ortho'))
+            #A = D * ((N*d1) ** 2) * np.fft.fftshift(np.fft.ifft2(np.fft.ifftshift(A0 ), norm='ortho'))
+        #A = A/np.max(np.abs(A))
+        return cp.asarray(A)
 
     def phase_retrieval_wish(self, I0: np.ndarray, I_target: list, Phi_m: list, unwrap: bool = False, plot: bool = True, **kwargs):
         """
@@ -246,7 +275,7 @@ class WavefrontSensor:
             return_dict = manager.dict()
             Processes=[]
             for i_m in range(self.N_mod):
-                p = multiprocessing.Process(target=_GS_iterate_mod, args=[self, phi, Phi_m, I_target, Signal_s, i_m, return_dict])
+                p = multiprocessing.Process(target=_GS_iterate_mod_1, args=[self, phi, Phi_m, I_target, i_m, return_dict])
                 p.start()
                 Processes.append(p)
             for process in Processes:
@@ -328,8 +357,6 @@ class WavefrontSensor:
         phi_m = gaussian_filter(phi_m, sigma=4)
         phi_m = np.pi * x * phi_m
         return phi_m
-
-
     def gaussian_profile(self, I: np.ndarray, sigma: float):
         """
 
@@ -364,21 +391,23 @@ class WavefrontSensor:
             A = SubIntensity(I0, A)
             A = SubPhase(phi0 + phi_m, A)
             A = Fresnel(self.z, A)
+            A = Interpol(self.size, N, 0,0,0,1,A)
             I_f = np.reshape(Intensity(1, A), I0.shape)
             # phi2 =  np.reshape(Phase(A), I0.shape)
-            """
             phi2=phi0 + phi_m
-            phi2 =zoom(phi2, d_3/self.d_SLM)
-            phi2 = np.pad(phi2,((round((N-phi2.shape[0])/2), round((N-phi2.shape[1])/2))))
-            if phi2.shape[0]>N:
-                phi2=phi2[0:N-1,:]
-            if phi2.shape[1]>N:
-                phi2=phi2[:,0:N-1]
+            #phi2 =zoom(phi2, d_3/self.d_SLM)
+            #phi2 = np.pad(phi2,((round((N-phi2.shape[0])/2), round((N-phi2.shape[1])/2))))
+            #if phi2.shape[0]>N:
+            #    phi2=phi2[0:N,:]
+            #if phi2.shape[1]>N:
+            #    phi2=phi2[:,0:N]
             A0 = np.sqrt(I0) * np.exp(1j * (phi2))
             # A0 = np.sqrt(I0)*np.exp(1j*(phi0))
-            A = self.FRT(A0, d_3, self.z)
-            # A = self.FRT(A, d_CAM,-self.z)
+            A = self.FRT_gpu(A0, d_3, self.z)
+            A = A/np.max(np.abs(A))
+            #A = self.FRT(A, self.d_CAM,-self.z)
             I = np.abs(A) ** 2
+            """
             fig = plt.figure()
             ax1 = fig.add_subplot(121)
             ax1.set_title("FRT")
@@ -388,7 +417,7 @@ class WavefrontSensor:
             ax2.imshow(I_f)
             plt.show()
             """
-            I_target.append(I_f)
+            I_target.append(I)
         T = time.time() - T0
         print(f"Took me {T} s to generate the modulation")
         I_target = np.array(I_target)
