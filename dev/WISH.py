@@ -7,18 +7,16 @@
 import numpy as np
 import matplotlib.pyplot as plt
 from LightPipes import *
-from PIL import Image  # for custom phase / intensity masks
+from PIL import Image
 from time import time
-from scipy.ndimage import interpolation
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 import time
 import sys
 import configparser
 import ast
-from scipy import signal, interpolate, io
+from scipy import io
 import cupy as cp
-import multiprocessing
-from scipy.ndimage import gaussian_filter, zoom
+from scipy.ndimage import  zoom
 
 class WISH_Sensor:
     def __init__(self, cfg_path):
