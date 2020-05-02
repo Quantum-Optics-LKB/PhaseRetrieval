@@ -274,7 +274,8 @@ class WISH_Sensor:
                 slm3[:,:,i] = slm1[0:N, :]
             if slm1.shape[1] > N:
                 slm3[:,:,i] = slm1[:, 0:N]
-
+            else :
+                slm3[:,:,i] = slm1
         SLM = np.exp(1j * 2 * np.pi * slm3).astype(np.complex64)
         return SLM
     def process_ims(self, ims, N):
@@ -312,8 +313,6 @@ class WISH_Sensor:
             u3_batch[:,:, ii] = self.frt_gpu_s(cp.asarray(y0_batch)/Q, delta4, -z3) * cp.conj(SLM_batch) #y0_batch gpu
         #u3 = np.mean(u3_batch, 2) # average it
         u3 = cp.mean(u3_batch, 2)
-        plt.imshow(cp.asnumpy(cp.abs(u3))) #TODO
-        plt.show()
 
         ## Recon run : GS loop
         idx_converge = np.empty(N_iter)
