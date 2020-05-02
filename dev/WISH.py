@@ -25,8 +25,8 @@ If you are sure of you CuPy install, then it is possible that your nvidia kernel
 bars the access to CuPy. In this case reload your Nvidia module using these commands (in Unix) :
     sudo rmmod nvidia_uvm
     sudo modprobe nvidia_uvm
-This usually happens after waking up you computer. You can always remove the lines with cupy code and replace them with 
-the surrounding commented lines to run the code in CPU mode.
+This usually happens after waking up you computer. You can always remove the lines with cupy code / "gpu" functions and 
+replace them with  the surrounding commented lines to run the code in CPU mode.
 """
 
 
@@ -71,6 +71,24 @@ class WISH_Sensor:
             A = D * Q2 * ((N*d1) ** 2) * np.fft.fftshift(np.fft.ifft2(np.fft.ifftshift(A0 * Q1), norm='ortho'))
             #A = D * ((N*d1) ** 2) * np.fft.fftshift(np.fft.ifft2(np.fft.ifftshift(A0 ), norm='ortho'))
         #A = A/np.max(np.abs(A))
+        return A
+    def frt_s(self, A0: np.ndarray, d1: float, z: float):
+        """
+        Simplified Fresnel propagation optimized for GPU computing. Runs on a GPU using CuPy with a CUDA backend.
+        :param A0: Field to propagate
+        :param d1: Sampling size of the field A0
+        :param z : Propagation distance in metres
+        :return: A : Propagated field
+        """
+        wv = self.wavelength
+        k = 2*np.pi / wv
+        N = A0.shape[0]
+        D = 1 /(1j*wv*abs(z))
+        if z >=0:
+            A =D * (d1**2) * np.fft.fftshift(np.fft.fft2(np.fft.ifftshift(A0), norm='ortho'))
+        elif z<0:
+            A =D * ((N*d1) ** 2) * np.fft.fftshift(np.fft.ifft2(np.fft.ifftshift(A0), norm='ortho'))
+
         return A
     def frt_gpu(self, A0: np.ndarray, d1: float, z: float):
         """
