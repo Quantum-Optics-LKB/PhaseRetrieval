@@ -19,6 +19,19 @@ from scipy import io
 import cupy as cp
 from scipy.ndimage import  zoom
 
+"""
+IMPORTANT NOTE : If the cupy module won't work, check that you have the right version of CuPy installed for you version
+of CUDA Toolkit : https://docs-cupy.chainer.org/en/stable/install.html  
+If you are sure of you CuPy install, then it is possible that your nvidia kernel module froze or that some program 
+bars the access to CuPy. In this case reload your Nvidia module using these commands (in Unix) :
+    sudo rmmod nvidia_uvm
+    sudo modprobe nvidia_uvm
+This usually happens after waking up you computer. 
+"""
+
+
+
+
 class WISH_Sensor:
     def __init__(self, cfg_path):
         conf = configparser.ConfigParser()
@@ -268,9 +281,9 @@ class WISH_Sensor:
                 #u3_collect = u3_collect + np.mean(u3_batch, 2) # collect(add) U3 from each batch
                 u3_collect = u3_collect + cp.mean(u3_batch, 2) # collect(add) U3 from each batch
                 #idx_converge0[idx_batch] = np.mean(np.mean(np.mean(y0_batch,1),0)/np.sum(np.sum(np.abs(np.abs(u4)-y0_batch),1),0))
-                idx_converge0[idx_batch] = cp.asnumpy(cp.mean(cp.mean(cp.mean(y0_batch,1),0)/cp.sum(cp.sum(cp.abs(cp.abs(u4)-y0_batch),1),0)))
+                #idx_converge0[idx_batch] = cp.asnumpy(cp.mean(cp.mean(cp.mean(y0_batch,1),0)/cp.sum(cp.sum(cp.abs(cp.abs(u4)-y0_batch),1),0)))
                 # convergence index matrix for each batch
-                #idx_converge0[idx_batch] = np.linalg.norm(y0_batch)/np.linalg.norm(np.abs(u4)-y0_batch)
+                idx_converge0[idx_batch] = cp.linalg.norm(cp.abs(u4)-y0_batch)/ cp.linalg.norm(y0_batch)
 
             u3 = (u3_collect / N_batch) # average over batches
             idx_converge[jj] = np.mean(idx_converge0) # sum over batches
@@ -300,9 +313,10 @@ class WISH_Sensor:
 
             # exit if the matrix doesn 't change much
             if jj > 1:
-                if abs(idx_converge[jj] - idx_converge[jj - 1]) / idx_converge[jj] < 1e-4:
+                if cp.abs(idx_converge[jj] - idx_converge[jj - 1]) / idx_converge[jj] < 1e-4:
                     print('\nConverged. Exit the GS loop ...')
-                    idx_converge = idx_converge[0:jj]
+                    #idx_converge = idx_converge[0:jj]
+                    idx_converge = cp.asnumpy(idx_converge[0:jj])
                     break
         return u4_est, idx_converge
 
