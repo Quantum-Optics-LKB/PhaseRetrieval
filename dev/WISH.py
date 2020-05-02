@@ -25,7 +25,8 @@ If you are sure of you CuPy install, then it is possible that your nvidia kernel
 bars the access to CuPy. In this case reload your Nvidia module using these commands (in Unix) :
     sudo rmmod nvidia_uvm
     sudo modprobe nvidia_uvm
-This usually happens after waking up you computer. 
+This usually happens after waking up you computer. You can always remove the lines with cupy code and replace them with 
+the surrounding commented lines to run the code in CPU mode.
 """
 
 
