@@ -236,7 +236,7 @@ class WISH_Sensor:
 
         slm = np.array(io.loadmat('/home/tangui/Documents/LKB/WISH/slm60_resize10.mat')['slm'])
         if slm.dtype=='uint8':
-            slm = slm.astype(float)
+            slm = slm.astype(float)/256
         ims = np.zeros((N, N, Nim), dtype=float)
 
         for i in range(Nim):
@@ -262,7 +262,7 @@ class WISH_Sensor:
         #Scale the SLM to the correct size
         delta_SLM = self.d_SLM
         if slm.dtype == 'uint8':
-            slm = slm.astype(float)
+            slm = slm.astype(float)/256
         slm2 = slm[:, 421: 1501, 0:Nim] #takes a 1080x1080 square of the SLM
         slm3 = np.empty((N,N,Nim))
         #could replace with my modulate function
@@ -303,8 +303,6 @@ class WISH_Sensor:
         X, Y = float(delta4) * cp.meshgrid(xx, yy)[0], float(delta4) * cp.meshgrid(xx, yy)[1]
         R = cp.sqrt(X ** 2 + Y ** 2)
         Q = cp.exp(1j*(k/(2*z3))*R**2)
-        plt.imshow(np.angle(cp.asnumpy(Q)))
-        plt.show()
         for ii in range(N_os):
             #SLM_batch = SLM[:,:, ii]
             SLM_batch = cp.asarray(SLM[:,:, ii])
