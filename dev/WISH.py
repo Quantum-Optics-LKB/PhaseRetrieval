@@ -345,7 +345,7 @@ class WISH_Sensor:
             idx_converge[jj] = np.mean(idx_converge0) # sum over batches
             sys.stdout.write(f"  (convergence index : {idx_converge[jj]})")
             #u4_est = self.frt(u3, delta3, z3)
-            u4_est = cp.asnumpy(self.frt_gpu(u3, delta3, z3))
+            u4_est = cp.asnumpy(self.frt_gpu_s(u3, delta3, z3)*Q)
 
             if jj % 10 == 0 and plot:
                 plt.close('all')
