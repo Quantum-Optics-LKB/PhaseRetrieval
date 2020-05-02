@@ -300,8 +300,9 @@ class WISH_Sensor:
 
             # exit if the matrix doesn 't change much
             if jj > 1:
-                if abs(idx_converge[jj] - idx_converge[jj - 1]) / idx_converge[jj] < 5e-4:
+                if abs(idx_converge[jj] - idx_converge[jj - 1]) / idx_converge[jj] < 1e-4:
                     print('\nConverged. Exit the GS loop ...')
+                    idx_converge = idx_converge[0:jj]
                     break
         return u4_est, idx_converge
 
