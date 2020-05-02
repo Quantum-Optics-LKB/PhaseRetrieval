@@ -152,9 +152,9 @@ class WISH_Sensor:
             if slm1.shape[1] > N:
                 slm1 = slm1[:, 0:N]
             a31 = u3 * A_SLM * np.exp(1j * slm1 * 2 * np.pi)
-            a31 = cp.asarray(a31)  #put the field in the GPU #TODO check normalization of the images
+            a31 = cp.asarray(a31)  #put the field in the GPU
             #a4 = self.frt(a31, delta3, z3)
-            a4 = self.frt_gpu(a31, delta3, z3) #TODO use ftr_gpu_s by defining one Q (much faster as only amplitude changes)
+            a4 = self.frt_gpu(a31, delta3, z3)
             w = noise * cp.random.rand(N, N)
             ya = cp.abs(a4)**2 + w
             ya[ya<0]=0
@@ -213,7 +213,8 @@ class WISH_Sensor:
         :param N_iter: Maximal number of Gerchberg Saxton iterations
         :param N_batch: Number of batches (modulations)
         :param plot: If True, plots the advance of the retrieval every 10 iterations
-        :return u4_est: Estimated field of size (N,N)
+        :return u4_est, idx_converge: Estimated field of size (N,N) and the convergence indices to check convergence
+                                      speed
         """
         wvl = self.wavelength
         z3 = self.z
@@ -267,9 +268,9 @@ class WISH_Sensor:
                 #u3_collect = u3_collect + np.mean(u3_batch, 2) # collect(add) U3 from each batch
                 u3_collect = u3_collect + cp.mean(u3_batch, 2) # collect(add) U3 from each batch
                 #idx_converge0[idx_batch] = np.mean(np.mean(np.mean(y0_batch,1),0)/np.sum(np.sum(np.abs(np.abs(u4)-y0_batch),1),0))
-                #idx_converge0[idx_batch] = cp.asnumpy(cp.mean(cp.mean(cp.mean(y0_batch,1),0)/cp.sum(cp.sum(cp.abs(cp.abs(u4)-y0_batch),1),0)))
+                idx_converge0[idx_batch] = cp.asnumpy(cp.mean(cp.mean(cp.mean(y0_batch,1),0)/cp.sum(cp.sum(cp.abs(cp.abs(u4)-y0_batch),1),0)))
                 # convergence index matrix for each batch
-                idx_converge0[idx_batch] = np.linalg.norm(y0_batch)/np.linalg.norm(np.abs(u4)-y0_batch)
+                #idx_converge0[idx_batch] = np.linalg.norm(y0_batch)/np.linalg.norm(np.abs(u4)-y0_batch)
 
             u3 = (u3_collect / N_batch) # average over batches
             idx_converge[jj] = np.mean(idx_converge0) # sum over batches
@@ -299,15 +300,17 @@ class WISH_Sensor:
 
             # exit if the matrix doesn 't change much
             if jj > 1:
-                if abs(idx_converge[jj] - idx_converge[jj - 1]) / idx_converge[jj] < 1e-4:
+                if abs(idx_converge[jj] - idx_converge[jj - 1]) / idx_converge[jj] < 5e-4:
                     print('\nConverged. Exit the GS loop ...')
                     break
-        return u4_est
+        return u4_est, idx_converge
 
 
 
 #WISH routine
 def main():
+    #start timer
+    T0 = time.time()
     #instantiate WISH
     Sensor = WISH_Sensor("wish_3.conf")
     im = np.array(Image.open('intensities/resChart.bmp'))[:,:,0]
@@ -339,14 +342,17 @@ def main():
         N_os = Nim
     N_iter = Sensor.N_gs  # number of GS iterations
     N_batch = int(Nim / N_os)  # number of batches
-    u4_est = Sensor.WISHrun(y0, SLM, delta3, delta4, N_os, N_iter, N_batch, plot=False)
-
+    u4_est, idx_converge = Sensor.WISHrun(y0, SLM, delta3, delta4, N_os, N_iter, N_batch, plot=False)
+    #total time
+    T= time.time()-T0
+    print(f"\n Total time elapsed : {T} s")
 
     fig=plt.figure()
-    ax1 = fig.add_subplot(221)
-    ax2 = fig.add_subplot(222)
-    ax3 = fig.add_subplot(223)
-    ax4 = fig.add_subplot(224)
+    ax1 = fig.add_subplot(231)
+    ax2 = fig.add_subplot(232)
+    ax3 = fig.add_subplot(233)
+    ax4 = fig.add_subplot(234)
+    ax5 = fig.add_subplot(235)
     divider1 = make_axes_locatable(ax1)
     cax1 = divider1.append_axes('right', size='5%', pad=0.05)
     divider2 = make_axes_locatable(ax2)
@@ -355,14 +361,18 @@ def main():
     cax3 = divider3.append_axes('right', size='5%', pad=0.05)
     divider4 = make_axes_locatable(ax4)
     cax4 = divider4.append_axes('right', size='5%', pad=0.05)
-    im1=ax1.imshow(np.abs(u40)**2, cmap='viridis')
+    im1=ax1.imshow(np.abs(u40)**2, cmap='viridis', vmin=0, vmax=1)
     ax1.set_title('Amplitude GT')
-    im2=ax2.imshow(np.angle(u40), cmap='viridis')
+    im2=ax2.imshow(np.angle(u40), cmap='viridis',vmin=-np.pi, vmax=np.pi)
     ax2.set_title('Phase GT')
-    im3=ax3.imshow(abs(u4_est), cmap='viridis')
+    im3=ax3.imshow(abs(u4_est), cmap='viridis', vmin=0, vmax=1)
     ax3.set_title('Amplitude estimation')
-    im4=ax4.imshow(np.angle(u4_est), cmap='viridis')
+    im4=ax4.imshow(np.angle(u4_est), cmap='viridis', vmin=-np.pi, vmax=np.pi)
     ax4.set_title('Phase estimation')
+    ax5.plot(np.arange(0, len(idx_converge),1), idx_converge)
+    ax5.set_title("Convergence curve")
+    ax5.set_xlabel("Iteration")
+    ax5.set_ylabel("Convergence index")
     fig.colorbar(im1, cax=cax1)
     fig.colorbar(im2, cax=cax2)
     fig.colorbar(im3, cax=cax3)
