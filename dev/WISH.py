@@ -263,10 +263,10 @@ class WISH_Sensor:
                 time.sleep(2)
 
             # exit if the matrix doesn 't change much
-            #if jj > 1:
-            #    if abs(idx_converge[jj] - idx_converge[jj - 1]) / idx_converge[jj] < 1e-4:
-            #        print('\nConverged. Exit the GS loop ...')
-            #        break
+            if jj > 1:
+                if abs(idx_converge[jj] - idx_converge[jj - 1]) / idx_converge[jj] < 1e-4:
+                    print('\nConverged. Exit the GS loop ...')
+                    break
         return u4_est
 
 
@@ -306,7 +306,7 @@ def main():
         N_os = Nim
     N_iter = Sensor.N_gs  # number of GS iterations
     N_batch = int(Nim / N_os)  # number of batches
-    u4_est = Sensor.WISHrun(y0, SLM, delta3, delta4, N_os, N_iter, N_batch, plot=True)
+    u4_est = Sensor.WISHrun(y0, SLM, delta3, delta4, N_os, N_iter, N_batch, plot=False)
 
 
     fig=plt.figure()
