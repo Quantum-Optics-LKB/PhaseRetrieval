@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 """
 @author : Tangui ALADJIDI
+After the Matlab code from Yicheng WU
 """
 
 
@@ -22,29 +23,20 @@ class WISH_Sensor:
     def __init__(self, cfg_path):
         conf = configparser.ConfigParser()
         conf.read(cfg_path)
-        self.size_SLM = float(conf["params"]["size_SLM"])  # size of the SLM window
-        self.size = float(conf["params"]["size"])  # size of the SLM window
         self.d_SLM = float(conf["params"]["d_SLM"])
         self.d_CAM = float(conf["params"]["d_CAM"])
         self.wavelength = float(conf["params"]["wavelength"])
         self.z = float(conf["params"]["z"])  # propagation distance
         self.N_gs = int(conf["params"]["N_gs"])  # number of GS iterations
         self.N_mod = int(conf["params"]["N_mod"])  # number of modulation steps
-        self.mod_intensity = float(conf["params"]["mod_intensity"])  # modulation intensity
-        self.SLM_levels = int(conf["params"]["SLM_levels"])  # number of SLM levels
-        self.threshold = float(conf['params']['mask_threshold'])  # intensity threshold for the signal region
-        self.elements = []  # list of optical elements
-        for element in conf["setup"]:
-            self.elements.append(ast.literal_eval(conf['setup'][element]))
-
-    # progress bar
-    def frt(self, A0, d1, z: float):
+        self.N_os = int(conf["params"]["N_os"])   #number of observations per image (to avg noise)
+    def frt(self, A0: np.ndarray, d1: float, z: float):
         """
         Implements propagation using Fresnel diffraction
-        :param I0: Intensity to propagate
-        :param phi0: Phase of the field
-        :param z : Propagation distance in metre
-        :return: I, phi : Propagated field
+        :param A0: Field to propagate
+        :param d1: Sampling size of the field A0
+        :param z : Propagation distance in metres
+        :return: A : Propagated field
         """
         wv = self.wavelength
         k = 2*np.pi / wv
@@ -67,13 +59,13 @@ class WISH_Sensor:
             #A = D * ((N*d1) ** 2) * np.fft.fftshift(np.fft.ifft2(np.fft.ifftshift(A0 ), norm='ortho'))
         #A = A/np.max(np.abs(A))
         return A
-    def frt_gpu(self, A0, d1, z: float):
+    def frt_gpu(self, A0: np.ndarray, d1: float, z: float):
         """
-        Implements propagation using Fresnel diffraction
-        :param I0: Intensity to propagate
-        :param phi0: Phase of the field
-        :param z : Propagation distance in metre
-        :return: I, phi : Propagated field
+        Implements propagation using Fresnel diffraction. Runs on a GPU using CuPy with a CUDA backend.
+        :param A0: Field to propagate
+        :param d1: Sampling size of the field A0
+        :param z : Propagation distance in metres
+        :return: A : Propagated field
         """
         wv = self.wavelength
         k = 2*np.pi / wv
@@ -94,13 +86,13 @@ class WISH_Sensor:
             A =D * Q2 * ((N*d1) ** 2) * cp.fft.fftshift(cp.fft.ifft2(cp.fft.ifftshift(A0 * Q1), norm='ortho'))
 
         return A
-    def frt_gpu_s(self, A0, d1, z: float):
+    def frt_gpu_s(self, A0: np.ndarray, d1: float, z: float):
         """
-        Implements propagation using Fresnel diffraction
-        :param I0: Intensity to propagate
-        :param phi0: Phase of the field
-        :param z : Propagation distance in metre
-        :return: I, phi : Propagated field
+        Simplified Fresnel propagation optimized for GPU computing. Runs on a GPU using CuPy with a CUDA backend.
+        :param A0: Field to propagate
+        :param d1: Sampling size of the field A0
+        :param z : Propagation distance in metres
+        :return: A : Propagated field
         """
         wv = self.wavelength
         k = 2*np.pi / wv
@@ -112,11 +104,26 @@ class WISH_Sensor:
             A =D * ((N*d1) ** 2) * cp.fft.fftshift(cp.fft.ifft2(cp.fft.ifftshift(A0), norm='ortho'))
 
         return A
-    def u4Tou3(self, u4, delta4, z3):
+    def u4Tou3(self, u4: np.ndarray, delta4: float, z3: float):
+        """
+        Propagates back a field from the sensor plane to the SLM plane
+        :param u4: Field to propagate back
+        :param delta4: Sampling size of the field u4
+        :param z3: Propagation distance in metres
+        :return: u3 the back propagated field
+        """
         u3 = self.frt(u4, delta4, -z3);
         return u3
-    def gen_ims(self, u3, z3, delta3, Nim, noise):
-        # generate ims on the sensor plane
+    def gen_ims(self, u3: np.ndarray, z3: float, delta3: float, Nim: int, noise: float):
+        """
+        Generates dummy signal in the sensor plane from the pre generated SLM patterns
+        :param u3: Initial field in the SLM plane
+        :param z3: Propagation distance in metres
+        :param delta3: "apparent" sampling size of the SLM plane (as seen by the image plane from z3 m away)
+        :param Nim: Number of images to generate
+        :param noise: Intensity of the gaussian noise added to the images
+        :return ims: Generated signal in the sensor plane of size (N,N,Nim)
+        """
         if Nim > 60:
             print('max Nim is 60.')
             raise
@@ -144,17 +151,25 @@ class WISH_Sensor:
                 slm1 = slm1[0:N, :]
             if slm1.shape[1] > N:
                 slm1 = slm1[:, 0:N]
-            a31 = u3 * A_SLM * np.exp(1j * slm1 * 2 * np.pi)
-            a4 = self.frt(a31, delta3, z3)
+            slm1 = cp.asarray(slm1) #put the slm pattern in the GPU
+            #a31 = u3 * A_SLM * np.exp(1j * slm1 * 2 * np.pi)
+            a31 = u3 * A_SLM * cp.exp(1j * slm1 * 2 * np.pi) #TODO check normalization of the images
+            a4 = self.frt(a31, delta3, z3) #TODO use ftr_gpu_s by defining one Q (much faster as only amplitude changes)
             w = noise * np.random.rand(N, N)
             ya = np.abs(a4)**2 + w
             ya[ya<0]=0
             ims[:,:, i] = ya
         return ims
-
-
-    def process_SLM(self, slm, N, Nim, delta3):
-        #Scale the SLM to the correct size
+    def process_SLM(self, slm: np.ndarray, N: int, Nim: int, delta3: float):
+        """
+        Scales the pre generated SLM patterns to the right size taking into account the apparent size of the SLM in
+        the sensor field of view.
+        :param slm: Input SLM patterns
+        :param N: Size of the calculation (typically the sensor number of pixels)
+        :param Nim: Number of images to generate
+        :param delta3: Sampling size of the SLM plane (typically the "apparent" sampling size wvl*z/N*d_Sensor )
+        :return SLM: Rescaled and properly shaped SLM patterns of size (N,N,Nim)
+        """
         delta_SLM = self.d_SLM
         if slm.dtype == 'uint8':
             slm = slm.astype(float)/256
@@ -173,13 +188,32 @@ class WISH_Sensor:
                 slm3[:,:,i] = slm1
         SLM = np.exp(1j * 2 * np.pi * slm3).astype(np.complex64)
         return SLM
-    def process_ims(self, ims, N):
+    def process_ims(self, ims: np.ndarray, N: int):
+        """
+        Converts images to amplitudes and eventually resizes them.
+        :param ims: images to convert
+        :param N: Size of the sensor
+        :return y0 : Processed field of size (N,N, Nim)
+        """
         y0 = np.real(np.sqrt(ims)); # change from intensity to magnitude
         y0 = np.pad(y0, (round((N - y0.shape[0]) / 2), round((N - y0.shape[1]) / 2)))
         if y0.shape[0] > N:
             y0=y0[0:N,0:N,:]
         return y0
-    def WISHrun(self, y0, SLM, delta3, delta4, N_os, N_iter, N_batch, plot=True):
+    def WISHrun(self, y0: np.ndarray, SLM: np.ndarray, delta3: float, delta4: float, N_os: int, N_iter: int,\
+                N_batch: int, plot: bool=True):
+        """
+        Runs the WISH algorithm using a Gerchberg Saxton loop for phase retrieval.
+        :param y0: Target modulated amplitudes in the sensor plane
+        :param SLM: SLM modulation patterns
+        :param delta3: Apparent sampling size of the SLM as seen from the sensor plane
+        :param delta4: Sampling size of the sensor plane
+        :param N_os: Number of observations per image
+        :param N_iter: Maximal number of Gerchberg Saxton iterations
+        :param N_batch: Number of batches (modulations)
+        :param plot: If True, plots the advance of the retrieval every 10 iterations
+        :return u4_est: Estimated field of size (N,N)
+        """
         wvl = self.wavelength
         z3 = self.z
         ## parameters
@@ -232,8 +266,8 @@ class WISH_Sensor:
                 #u3_collect = u3_collect + np.mean(u3_batch, 2) # collect(add) U3 from each batch
                 u3_collect = u3_collect + cp.mean(u3_batch, 2) # collect(add) U3 from each batch
                 #idx_converge0[idx_batch] = np.mean(np.mean(np.mean(y0_batch,1),0)/np.sum(np.sum(np.abs(np.abs(u4)-y0_batch),1),0))
-                idx_converge0[idx_batch] = cp.asnumpy(cp.mean(cp.mean(cp.mean(y0_batch,1),0)/cp.sum(cp.sum(cp.abs(cp.abs(u4)-y0_batch),1),0)))
-                #idx_converge0[idx_batch] = np.linalg.norm(y0_batch)/np.linalg.norm(np.abs(u4)-y0_batch)
+                #idx_converge0[idx_batch] = cp.asnumpy(cp.mean(cp.mean(cp.mean(y0_batch,1),0)/cp.sum(cp.sum(cp.abs(cp.abs(u4)-y0_batch),1),0)))
+                idx_converge0[idx_batch] = np.linalg.norm(y0_batch)/np.linalg.norm(np.abs(u4)-y0_batch)
                 # convergence index matrix for each batch
                 del SLM_batch, y0_batch
             u3 = (u3_collect / N_batch) # average over batches
@@ -271,14 +305,12 @@ class WISH_Sensor:
 
 
 
-#WISH routine with the resolution chart
+#WISH routine
 def main():
-    ##load parameters and field
     #instantiate WISH
     Sensor = WISH_Sensor("wish_3.conf")
     im = np.array(Image.open('intensities/resChart.bmp'))[:,:,0]
-    ## load('I_final.mat')
-    u40 = np.pad(im.astype(np.float), (256,256))
+    u40 = np.pad(im.astype(np.float)/256, (256,256))
     wvl = Sensor.wavelength
     z3 = Sensor.z
     delta4 = Sensor.d_CAM
@@ -288,7 +320,7 @@ def main():
     ## forward prop to the sensor plane with SLM modulation
     print('Generating simulation data images ...')
     noise = 0.01
-    Nim = 4
+    Nim = Sensor.N_mod*Sensor.N_os
     ims = Sensor.gen_ims(u30, z3, delta3, Nim, noise)
     print('\nCaptured images are simulated')
     #clear u30, u40 for memory economy
@@ -301,7 +333,7 @@ def main():
     #process the captured image : converting to amplitude and padding if needed
     y0 = Sensor.process_ims(ims, N)
     ##Recon initilization
-    N_os = 2 # number of images per batch
+    N_os = Sensor.N_os # number of images per batch
     if Nim < N_os:
         N_os = Nim
     N_iter = Sensor.N_gs  # number of GS iterations
