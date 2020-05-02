@@ -151,14 +151,15 @@ class WISH_Sensor:
                 slm1 = slm1[0:N, :]
             if slm1.shape[1] > N:
                 slm1 = slm1[:, 0:N]
-            slm1 = cp.asarray(slm1) #put the slm pattern in the GPU
-            #a31 = u3 * A_SLM * np.exp(1j * slm1 * 2 * np.pi)
-            a31 = u3 * A_SLM * cp.exp(1j * slm1 * 2 * np.pi) #TODO check normalization of the images
-            a4 = self.frt(a31, delta3, z3) #TODO use ftr_gpu_s by defining one Q (much faster as only amplitude changes)
-            w = noise * np.random.rand(N, N)
-            ya = np.abs(a4)**2 + w
+            a31 = u3 * A_SLM * np.exp(1j * slm1 * 2 * np.pi)
+            a31 = cp.asarray(a31)  #put the field in the GPU #TODO check normalization of the images
+            #a4 = self.frt(a31, delta3, z3)
+            a4 = self.frt_gpu(a31, delta3, z3) #TODO use ftr_gpu_s by defining one Q (much faster as only amplitude changes)
+            w = noise * cp.random.rand(N, N)
+            ya = cp.abs(a4)**2 + w
             ya[ya<0]=0
-            ims[:,:, i] = ya
+            #ims[:,:, i] = ya
+            ims[:,:, i] = cp.asnumpy(ya)
         return ims
     def process_SLM(self, slm: np.ndarray, N: int, Nim: int, delta3: float):
         """
@@ -267,9 +268,9 @@ class WISH_Sensor:
                 u3_collect = u3_collect + cp.mean(u3_batch, 2) # collect(add) U3 from each batch
                 #idx_converge0[idx_batch] = np.mean(np.mean(np.mean(y0_batch,1),0)/np.sum(np.sum(np.abs(np.abs(u4)-y0_batch),1),0))
                 #idx_converge0[idx_batch] = cp.asnumpy(cp.mean(cp.mean(cp.mean(y0_batch,1),0)/cp.sum(cp.sum(cp.abs(cp.abs(u4)-y0_batch),1),0)))
-                idx_converge0[idx_batch] = np.linalg.norm(y0_batch)/np.linalg.norm(np.abs(u4)-y0_batch)
                 # convergence index matrix for each batch
-                del SLM_batch, y0_batch
+                idx_converge0[idx_batch] = np.linalg.norm(y0_batch)/np.linalg.norm(np.abs(u4)-y0_batch)
+
             u3 = (u3_collect / N_batch) # average over batches
             idx_converge[jj] = np.mean(idx_converge0) # sum over batches
             sys.stdout.write(f"  (convergence index : {idx_converge[jj]})")
