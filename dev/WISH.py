@@ -16,7 +16,7 @@ import sys
 import configparser
 from scipy import io
 import cupy as cp
-from scipy.ndimage import  zoom
+from scipy.ndimage import  zoom, gaussian_filter
 
 """
 IMPORTANT NOTE : If the cupy module won't work, check that you have the right version of CuPy installed for you version
@@ -43,6 +43,98 @@ class WISH_Sensor:
         self.N_gs = int(conf["params"]["N_gs"])  # number of GS iterations
         self.N_mod = int(conf["params"]["N_mod"])  # number of modulation steps
         self.N_os = int(conf["params"]["N_os"])   #number of observations per image (to avg noise)
+        self.mod_intensity = float(conf["params"]["mod_intensity"])  # modulation intensity
+        self.threshold = float(conf['params']['mask_threshold'])  # intensity threshold for the signal region
+    def define_mask(self, I: np.ndarray, plot: bool):
+        """
+        A function to define the signal region automatically from the provided intensity and threshold
+        :param I: intensity from which to define a signal region
+        :param threshold: intensities below threshold are discarded
+        :param plot: Plot or not the defined mask
+        :return: mask_sr the defined mask
+        """
+        threshold = self.threshold
+        h, w = I.shape
+        mask_sr = np.zeros((h, w))
+        # detect outermost non zero target intensity point
+        non_zero = np.array(np.where(I > self.threshold))
+        non_zero_offset = np.zeros(non_zero.shape)
+        # offset relative to center
+        non_zero_offset[0] = non_zero[0] - (h / 2) * np.ones(len(non_zero[0]))
+        non_zero_offset[1] = non_zero[1] - (w / 2) * np.ones(len(non_zero[1]))
+        # Determine radii of each non-zero point
+        R_non_zero = np.sqrt(non_zero_offset[0] ** 2 + non_zero_offset[1] ** 2)
+        R_max = np.where(R_non_zero == np.max(abs(R_non_zero)))[0][
+            0]
+        # if there are several equally far points, it takes the
+        # first one
+        i_max, j_max = int(h / 2 + int(abs(non_zero_offset[0][R_max]))), int(
+            w / 2 + int(abs(non_zero_offset[1][R_max])))
+        i_min, j_min = int(h / 2 - int(abs(non_zero_offset[0][R_max]))), int(
+            w / 2 - int(abs(non_zero_offset[1][R_max])))
+        delta_i = int(i_max - i_min)
+        delta_j = int(j_max - j_min)
+        if delta_i > delta_j:
+            mask_sr[i_min:i_max, i_min:i_max] = 1
+        else:
+            mask_sr[j_min:j_max, j_min:j_max] = 1
+        if plot:
+            fig = plt.figure(0)
+            ax1 = fig.add_subplot(131)
+            ax2 = fig.add_subplot(132)
+            ax3 = fig.add_subplot(133)
+            divider1 = make_axes_locatable(ax1)
+            divider2 = make_axes_locatable(ax2)
+            divider3 = make_axes_locatable(ax3)
+            cax1 = divider1.append_axes('right', size='5%', pad=0.05)
+            cax2 = divider2.append_axes('right', size='5%', pad=0.05)
+            cax3 = divider3.append_axes('right', size='5%', pad=0.05)
+            im1=ax1.imshow(I, cmap="viridis")
+            ax1.set_title("Intensity")
+            im2=ax2.imshow(mask_sr, cmap="viridis")
+            ax2.set_title(f"Signal region (Threshold = {threshold})")
+            scat = ax2.scatter(non_zero[0][R_max], non_zero[1][R_max], color='r')
+            scat.set_label('Threshold point')
+            ax2.legend()
+            extent = [min(freq), max(freq), min(freq), max(freq)]
+            im3 = ax3.imshow(I_tf, cmap="viridis", extent=extent)
+            ax3.set_title("Fourier transform")
+            fig.colorbar(im1, cax=cax1)
+            fig.colorbar(im2, cax=cax2)
+            fig.colorbar(im3, cax=cax3)
+            plt.show()
+        return mask_sr
+    def modulate(self, shape: tuple):
+        """
+        A function to randomly modulating a phase map without introducing too much high frequency noise
+        :param phi: Phase map to be modulated
+        :return: phi_m a modulated phase map to multiply to phi
+        """
+        x = self.mod_intensity
+        # generate (N/10)x(N/10) random matrices that will then be upscaled through interpolation
+        h, w = int(shape[0] / 10), int(shape[1] / 10)
+        M = (np.ones((h, w)) - 2 * np.random.rand(h, w))  # random matrix between [-1 , 1]
+        phi_m = np.kron(M, np.ones((10, 10)))
+        phi_m = gaussian_filter(phi_m, sigma=4)
+        phi_m = x * phi_m
+        return phi_m
+    def gaussian_profile(self, I: np.ndarray, sigma: float):
+        """
+
+        :param I: Intensity to which a gaussian profile is going to be applied
+        :param sigma: Standard deviation of the gaussian profile, in fraction of the provided intensity size
+        :return: I_gauss : the "gaussianized" intensity
+        """
+        h, w = I.shape
+        # define a radial position matrix
+        R = np.zeros((h, w))
+        for i in range(h):
+            for j in range(w):
+                R[i, j] = np.sqrt((h / 2 - i) ** 2 + (w / 2 - j) ** 2)
+        sig = sigma * max(h, w)
+        G = np.exp(-R ** 2 / (2 * sig ** 2))
+        I_gauss = I * G
+        return I_gauss
     def frt(self, A0: np.ndarray, d1: float, z: float):
         """
         Implements propagation using Fresnel diffraction
@@ -145,7 +237,7 @@ class WISH_Sensor:
         """
         u3 = self.frt(u4, delta4, -z3);
         return u3
-    def gen_ims(self, u3: np.ndarray, z3: float, delta3: float, Nim: int, noise: float):
+    def gen_ims(self, u3: np.ndarray, phi0: np.ndarray, z3: float, delta3: float, Nim: int, noise: float):
         """
         Generates dummy signal in the sensor plane from the pre generated SLM patterns
         :param u3: Initial field in the SLM plane
@@ -170,28 +262,42 @@ class WISH_Sensor:
         slm = np.array(io.loadmat('/home/tangui/Documents/LKB/WISH/slm60_resize10.mat')['slm'])
         if slm.dtype=='uint8':
             slm = slm.astype(float)/256
+        if phi0.dtype=='uint8':
+            phi0 = phi0.astype(float)/256
         ims = np.zeros((N, N, Nim), dtype=float)
-
-        for i in range(Nim):
-            sys.stdout.write(f"\rGenerating image {i+1} out of {Nim} ...")
-            sys.stdout.flush()
-            slm0 = slm[:, 421: 1500, i]
-            slm1 = zoom(slm0, delta_SLM / delta3)
-            slm1 = np.pad(slm1, (round((N - slm1.shape[0])/ 2), round((N - slm1.shape[1]) / 2)))
-            if slm1.shape[0] > N:
-                slm1 = slm1[0:N, :]
-            if slm1.shape[1] > N:
-                slm1 = slm1[:, 0:N]
-            a31 = u3 * A_SLM * np.exp(1j * slm1 * 2 * np.pi)
-            a31 = cp.asarray(a31)  #put the field in the GPU
-            #a4 = self.frt(a31, delta3, z3)
-            a4 = self.frt_gpu(a31, delta3, z3)
-            w = noise * cp.random.rand(N, N)
-            ya = cp.abs(a4)**2 + w
-            ya[ya<0]=0
-            #ims[:,:, i] = ya
-            ims[:,:, i] = cp.asnumpy(ya)
-        return ims
+        for i in range(Nim+1):
+            if i <Nim:
+                sys.stdout.write(f"\rGenerating image {i+1} out of {Nim} ...")
+                sys.stdout.flush()
+                slm0 = slm[:, 421: 1501, i] + phi0[:, 421:1501] #adding the calibration
+                slm1 = zoom(slm0, delta_SLM / delta3)
+                slm1 = np.pad(slm1, (round((N - slm1.shape[0])/ 2), round((N - slm1.shape[1]) / 2)))
+                if slm1.shape[0] > N:
+                    slm1 = slm1[0:N, :]
+                if slm1.shape[1] > N:
+                    slm1 = slm1[:, 0:N]
+                a31 = u3 * A_SLM * np.exp(1j * slm1 * 2 * np.pi)
+                a31 = cp.asarray(a31)  #put the field in the GPU
+                #a4 = self.frt(a31, delta3, z3)
+                a4 = self.frt_gpu(a31, delta3, z3)
+                w = noise * cp.random.rand(N, N)
+                ya = cp.abs(a4)**2 + w
+                ya[ya<0]=0
+                #ims[:,:, i] = ya
+                ims[:,:, i] = cp.asnumpy(ya)
+            else :
+                slm0 = phi0[:, 421:1500]
+                slm1 = zoom(slm0, delta_SLM / delta3)
+                slm1 = np.pad(slm1, (round((N - slm1.shape[0]) / 2), round((N - slm1.shape[1]) / 2)))
+                if slm1.shape[0] > N:
+                    slm1 = slm1[0:N, :]
+                if slm1.shape[1] > N:
+                    slm1 = slm1[:, 0:N]
+                a31 = u3 * A_SLM * np.exp(1j * slm1 * 2 * np.pi)
+                a31 = cp.asarray(a31)
+                a_target = self.frt_gpu(a31, delta3, z3)
+                a_target = cp.asnumpy(a_target)
+        return ims, a_target
     def process_SLM(self, slm: np.ndarray, N: int, Nim: int, delta3: float):
         """
         Scales the pre generated SLM patterns to the right size taking into account the apparent size of the SLM in
@@ -331,12 +437,12 @@ class WISH_Sensor:
 
             # exit if the matrix doesn 't change much
             if jj > 1:
-                if cp.abs(idx_converge[jj] - idx_converge[jj - 1]) / idx_converge[jj] < 1e-4:
+                if cp.abs(idx_converge[jj] - idx_converge[jj - 1]) / idx_converge[jj] < 5e-4:
                     print('\nConverged. Exit the GS loop ...')
                     #idx_converge = idx_converge[0:jj]
                     idx_converge = cp.asnumpy(idx_converge[0:jj])
                     break
-        return u4_est, idx_converge
+        return u3, u4_est, idx_converge
 
 
 
@@ -346,11 +452,15 @@ def main():
     T0 = time.time()
     #instantiate WISH
     Sensor = WISH_Sensor("wish_3.conf")
-    im = np.array(Image.open('intensities/resChart.bmp'))[:,:,0]
-    u40 = np.pad(im.astype(np.float)/256, (256,256))
     wvl = Sensor.wavelength
     z3 = Sensor.z
     delta4 = Sensor.d_CAM
+    im = np.array(Image.open('intensities/resChart.bmp'))[:,:,0]
+    #im = np.array(Image.open('intensities/I0_512_full.bmp'))[:,:,0]
+    #phi0 = np.array(Image.open('phases/calib_1920_1080.bmp'))
+    phi0 = np.zeros((1080, 1920))
+    #im = Sensor.gaussian_profile(im, sigma=0.5)
+    u40 = np.pad(im.astype(np.float)/256, (256,256)) #protection band
     N = u40.shape[0]
     delta3 = wvl * z3 / (N * delta4)
     u30 = Sensor.u4Tou3(u40, delta4, z3)
@@ -358,9 +468,9 @@ def main():
     print('Generating simulation data images ...')
     noise = 0.01
     Nim = Sensor.N_mod*Sensor.N_os
-    ims = Sensor.gen_ims(u30, z3, delta3, Nim, noise)
+    ims, a_target = Sensor.gen_ims(u30, phi0, z3, delta3, Nim, noise)
     print('\nCaptured images are simulated')
-    #clear u30, u40 for memory economy
+    #clear u30
     del u30
     ## reconstruction
     # pre - process the data
@@ -375,7 +485,7 @@ def main():
         N_os = Nim
     N_iter = Sensor.N_gs  # number of GS iterations
     N_batch = int(Nim / N_os)  # number of batches
-    u4_est, idx_converge = Sensor.WISHrun(y0, SLM, delta3, delta4, N_os, N_iter, N_batch, plot=False)
+    u3, u4_est, idx_converge = Sensor.WISHrun(y0, SLM, delta3, delta4, N_os, N_iter, N_batch, plot=False)
     #total time
     T= time.time()-T0
     print(f"\n Total time elapsed : {T} s")
@@ -394,7 +504,7 @@ def main():
     cax3 = divider3.append_axes('right', size='5%', pad=0.05)
     divider4 = make_axes_locatable(ax4)
     cax4 = divider4.append_axes('right', size='5%', pad=0.05)
-    im1=ax1.imshow(np.abs(u40)**2, cmap='viridis', vmin=0, vmax=1)
+    im1=ax1.imshow(np.abs(u40), cmap='viridis', vmin=0, vmax=1)
     ax1.set_title('Amplitude GT')
     im2=ax2.imshow(np.angle(u40), cmap='viridis',vmin=-np.pi, vmax=np.pi)
     ax2.set_title('Phase GT')
