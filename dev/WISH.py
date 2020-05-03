@@ -16,6 +16,7 @@ import sys
 import configparser
 from scipy import io
 import cupy as cp
+import cupyx
 from scipy.ndimage import  zoom, gaussian_filter
 
 """
@@ -113,10 +114,11 @@ class WISH_Sensor:
         x = self.mod_intensity
         # generate (N/10)x(N/10) random matrices that will then be upscaled through interpolation
         h, w = int(shape[0] / 10), int(shape[1] / 10)
-        M = (np.ones((h, w)) - 2 * np.random.rand(h, w))  # random matrix between [-1 , 1]
-        phi_m = np.kron(M, np.ones((10, 10)))
-        phi_m = gaussian_filter(phi_m, sigma=4)
-        phi_m = x * phi_m
+        M = np.random.rand(h, w)  # random matrix between [-1 , 1]
+        #phi_m = np.kron(M, np.ones((10, 10)))
+        #phi_m = gaussian_filter(phi_m, sigma=2)
+        phi_m = zoom(M, shape[0]/M.shape[0])
+        phi_m =  x * phi_m
         return phi_m
     def gaussian_profile(self, I: np.ndarray, sigma: float):
         """
@@ -237,10 +239,12 @@ class WISH_Sensor:
         """
         u3 = self.frt(u4, delta4, -z3);
         return u3
-    def gen_ims(self, u3: np.ndarray, phi0: np.ndarray, z3: float, delta3: float, Nim: int, noise: float):
+    def gen_ims(self, u3: np.ndarray, phi0: np.ndarray, slm: np.ndarray, z3: float, delta3: float, Nim: int, noise: float):
         """
         Generates dummy signal in the sensor plane from the pre generated SLM patterns
         :param u3: Initial field in the SLM plane
+        :param phi0 : Initial phase typically the calibration of the SLM
+        :param slm : Pre generated slm patterns
         :param z3: Propagation distance in metres
         :param delta3: "apparent" sampling size of the SLM plane (as seen by the image plane from z3 m away)
         :param Nim: Number of images to generate
@@ -259,7 +263,6 @@ class WISH_Sensor:
         XX, YY = np.meshgrid(x,y)
         A_SLM = (np.abs(XX) * delta3 < L_SLM / 2) * (np.abs(YY) * delta3 < L_SLM / 2)
 
-        slm = np.array(io.loadmat('/home/tangui/Documents/LKB/WISH/slm60_resize10.mat')['slm'])
         if slm.dtype=='uint8':
             slm = slm.astype(float)/256
         if phi0.dtype=='uint8':
@@ -357,7 +360,6 @@ class WISH_Sensor:
         z3 = self.z
         ## parameters
         N = y0.shape[0]
-        k = 2 * np.pi / wvl
         #u3_batch = np.zeros((N, N, N_os), dtype=complex) # store all U3 gpu
         #u4 = np.zeros((N, N, N_os), dtype=complex) # gpu
         #y = np.zeros((N, N, N_os), dtype=complex) # store all U3 gpu
@@ -437,7 +439,7 @@ class WISH_Sensor:
 
             # exit if the matrix doesn 't change much
             if jj > 1:
-                if cp.abs(idx_converge[jj] - idx_converge[jj - 1]) / idx_converge[jj] < 5e-4:
+                if cp.abs(idx_converge[jj] - idx_converge[jj - 1]) / idx_converge[jj] < 1e-4:
                     print('\nConverged. Exit the GS loop ...')
                     #idx_converge = idx_converge[0:jj]
                     idx_converge = cp.asnumpy(idx_converge[0:jj])
@@ -468,14 +470,16 @@ def main():
     print('Generating simulation data images ...')
     noise = 0.01
     Nim = Sensor.N_mod*Sensor.N_os
-    ims, a_target = Sensor.gen_ims(u30, phi0, z3, delta3, Nim, noise)
+    slm = np.zeros((1080,1920,Nim))
+    for i in range(Nim):
+        slm[:,:,i]=Sensor.modulate((1080,1920))
+    ims, a_target = Sensor.gen_ims(u30, phi0, slm, z3, delta3, Nim, noise)
     print('\nCaptured images are simulated')
     #clear u30
     del u30
     ## reconstruction
     # pre - process the data
     # for the SLM : correct scaling
-    slm = np.array(io.loadmat('/home/tangui/Documents/LKB/WISH/slm60_resize10.mat')['slm'])
     SLM = Sensor.process_SLM(slm, N, Nim, delta3)
     #process the captured image : converting to amplitude and padding if needed
     y0 = Sensor.process_ims(ims, N)
