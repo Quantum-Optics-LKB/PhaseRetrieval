@@ -82,15 +82,12 @@ class WISH_Sensor:
             mask_sr[j_min:j_max, j_min:j_max] = 1
         if plot:
             fig = plt.figure(0)
-            ax1 = fig.add_subplot(131)
-            ax2 = fig.add_subplot(132)
-            ax3 = fig.add_subplot(133)
+            ax1 = fig.add_subplot(121)
+            ax2 = fig.add_subplot(122)
             divider1 = make_axes_locatable(ax1)
             divider2 = make_axes_locatable(ax2)
-            divider3 = make_axes_locatable(ax3)
             cax1 = divider1.append_axes('right', size='5%', pad=0.05)
             cax2 = divider2.append_axes('right', size='5%', pad=0.05)
-            cax3 = divider3.append_axes('right', size='5%', pad=0.05)
             im1=ax1.imshow(I, cmap="viridis")
             ax1.set_title("Intensity")
             im2=ax2.imshow(mask_sr, cmap="viridis")
@@ -98,14 +95,15 @@ class WISH_Sensor:
             scat = ax2.scatter(non_zero[0][R_max], non_zero[1][R_max], color='r')
             scat.set_label('Threshold point')
             ax2.legend()
-            extent = [min(freq), max(freq), min(freq), max(freq)]
-            im3 = ax3.imshow(I_tf, cmap="viridis", extent=extent)
-            ax3.set_title("Fourier transform")
             fig.colorbar(im1, cax=cax1)
             fig.colorbar(im2, cax=cax2)
-            fig.colorbar(im3, cax=cax3)
             plt.show()
         return mask_sr
+    def crop_center(self, img, cropx, cropy):
+        y, x = img.shape
+        startx = x // 2 - (cropx // 2)
+        starty = y // 2 - (cropy // 2)
+        return img[starty:starty + cropy, startx:startx + cropx]
     def modulate(self, shape: tuple):
         """
         A function to randomly modulating a phase map without introducing too much high frequency noise
@@ -114,12 +112,14 @@ class WISH_Sensor:
         """
         x = self.mod_intensity
         # generate (N/10)x(N/10) random matrices that will then be upscaled through interpolation
-        h, w = int(shape[0] / 10), int(shape[1] / 10)
+        #h, w = int(shape[0] / 10), int(shape[1] / 10)
+        h, w = shape
         M = np.random.rand(h, w)  # random matrix between [-1 , 1]
         #phi_m = np.kron(M, np.ones((10, 10)))
         #phi_m = gaussian_filter(phi_m, sigma=2)
-        phi_m = zoom(M, shape[0]/M.shape[0])
-        phi_m =  x * phi_m
+       # phi_m = zoom(M, shape[0]/M.shape[0])
+        #phi_m =  x * phi_m
+        phi_m = M
         return phi_m
     def modulate_binary(self, shape: tuple):
         """
@@ -309,10 +309,9 @@ class WISH_Sensor:
         if slm.dtype == 'uint8':
             slm = slm.astype(float)/256.
         if slm.ndim == 3:
-            slm2 = slm[:, 421: 1501, 0:Nim] #takes a 1080x1080 square of the SLM
-            #slm2 = slm[:, :, 0:Nim] #takes a 1080x1080 square of the SLM
+            #slm2 = slm[:, 421 : 1501, 0:Nim] #takes a 1080x1080 square of the SLM
+            slm2 = slm[:, :, 0:Nim]
             slm3 = np.empty((N,N,Nim))
-            #could replace with my modulate function
             #scale SLM slices to the right size
             for i in range(Nim):
                 slm1 = zoom(slm2[:,:,i], delta_SLM / delta3)
@@ -336,8 +335,8 @@ class WISH_Sensor:
                 print("Wrong type specified : type can be 'amp' or 'phi' ! ")
                 raise
         elif slm.ndim == 2:
-            slm2 = slm[:, 421:1501]
-            #slm2 = slm
+            #slm2 = slm[:, 421:1501]
+            slm2 = slm
             slm3 = np.empty((N, N))
             # could replace with my modulate function
             # scale SLM slices to the right size
@@ -562,13 +561,14 @@ def main():
     #I0 = np.pad(I0.astype(np.float) / 256, (256, 256))  # protection band
     im = np.array(Image.open('intensities/harambe_512_full.bmp'))[:,:,0]
     phi0 = np.array(Image.open('phases/calib_512_full.bmp'))
-    u40 = np.pad(im.astype(np.float)/256, (512,512)) #protection band
+    u40 = np.pad(im.astype(np.float)/256, (256,256)) #protection band
 
-    phi0 = np.pad(phi0.astype(np.float)/256, (512,512)) #protection band
+    phi0 = np.pad(phi0.astype(np.float)/256, (256,256)) #protection band
     u40 = u40 * (np.exp(1j * phi0 * 2 * np.pi))
     N = u40.shape[0]
     #N = int((Sensor.d_SLM/Sensor.d_CAM)*I0.shape[0]+512)
     delta3 = wvl * z3 / (N * delta4)
+    print(delta3)
     u30 = Sensor.u4Tou3(u40, delta4, z3)
     #u30 = np.sqrt(I0)
     #u30 = Sensor.process_CAM(u30, N, 1, delta3, type="amp")
@@ -577,8 +577,8 @@ def main():
     print('Generating simulation data images ...')
     noise = Sensor.noise
     Nim = Sensor.N_mod*Sensor.N_os
-    slm = np.zeros((1080, 1920,Nim))
-    q = np.zeros((1080, 1920,Nim))
+    slm = np.zeros((N, N,Nim))
+    q = np.zeros((N, N,Nim))
     k = 2 * np.pi / wvl
     f = 4*z3
     Ny, Nx = slm[:, :, 0].shape
@@ -590,7 +590,7 @@ def main():
     for i in range(Nim-1):
         #slm[:,:,i]=Sensor.modulate((1080,1920))
         #slm[:,:,i]=Sensor.modulate((1080,1920))
-        slm[:,:,i] = Sensor.modulate_binary((1080, 1920))
+        slm[:,:,i] = Sensor.modulate_binary((N, N))
         q[:,:,i] = -(1 / 2 * np.pi) * (k / (2 * f)) * R ** 2
     slm[:,:,Nim-1]=np.ones(slm[:,:,Nim-1].shape)
     q[:,:,Nim-1] = -(1 / 2 * np.pi) * (k / (2 * f)) * R ** 2
