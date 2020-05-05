@@ -112,14 +112,10 @@ class WISH_Sensor:
         """
         x = self.mod_intensity
         # generate (N/10)x(N/10) random matrices that will then be upscaled through interpolation
-        #h, w = int(shape[0] / 10), int(shape[1] / 10)
-        h, w = shape
+        h, w = int(shape[0] / 10), int(shape[1] / 10)
         M = np.random.rand(h, w)  # random matrix between [-1 , 1]
-        #phi_m = np.kron(M, np.ones((10, 10)))
-        #phi_m = gaussian_filter(phi_m, sigma=2)
-       # phi_m = zoom(M, shape[0]/M.shape[0])
-        #phi_m =  x * phi_m
-        phi_m = M
+        phi_m = zoom(M, shape[0]/M.shape[0])
+        phi_m =  x * phi_m
         return phi_m
     def modulate_binary(self, shape: tuple):
         """
@@ -309,8 +305,8 @@ class WISH_Sensor:
         if slm.dtype == 'uint8':
             slm = slm.astype(float)/256.
         if slm.ndim == 3:
-            #slm2 = slm[:, 421 : 1501, 0:Nim] #takes a 1080x1080 square of the SLM
-            slm2 = slm[:, :, 0:Nim]
+            slm2 = slm[:, 421 : 1501, 0:Nim] #takes a 1080x1080 square of the SLM
+            #slm2 = slm[:, :, 0:Nim]
             slm3 = np.empty((N,N,Nim))
             #scale SLM slices to the right size
             for i in range(Nim):
@@ -335,8 +331,8 @@ class WISH_Sensor:
                 print("Wrong type specified : type can be 'amp' or 'phi' ! ")
                 raise
         elif slm.ndim == 2:
-            #slm2 = slm[:, 421:1501]
-            slm2 = slm
+            slm2 = slm[:, 421:1501]
+            #slm2 = slm
             slm3 = np.empty((N, N))
             # could replace with my modulate function
             # scale SLM slices to the right size
@@ -556,19 +552,19 @@ def main():
     wvl = Sensor.wavelength
     z3 = Sensor.z
     delta4 = Sensor.d_CAM
-    #I0 = np.array(Image.open('intensities/harambe_256_full.bmp'))[:,:,0]
-    #I0 = I0.astype(float)/256
-    #I0 = np.pad(I0.astype(np.float) / 256, (256, 256))  # protection band
+    I0 = np.array(Image.open('intensities/harambe_512_full.bmp'))[:,:,0]
+    I0 = I0.astype(float)/256
+    I0 = np.pad(I0.astype(np.float) / 256, (256, 256))  # protection band
     im = np.array(Image.open('intensities/harambe_512_full.bmp'))[:,:,0]
+    N_sr = im.shape[0]
     phi0 = np.array(Image.open('phases/calib_512_full.bmp'))
-    u40 = np.pad(im.astype(np.float)/256, (256,256)) #protection band
-
-    phi0 = np.pad(phi0.astype(np.float)/256, (256,256)) #protection band
+    phi1 = np.pad(phi0.astype(np.float) / 256, (256, 256))  # protection band
+    u40 = np.pad(im.astype(np.float)/256, (128,128)) #protection band
+    phi0 = np.pad(phi0.astype(np.float)/256, (128,128)) #protection band
     u40 = u40 * (np.exp(1j * phi0 * 2 * np.pi))
     N = u40.shape[0]
     #N = int((Sensor.d_SLM/Sensor.d_CAM)*I0.shape[0]+512)
     delta3 = wvl * z3 / (N * delta4)
-    print(delta3)
     u30 = Sensor.u4Tou3(u40, delta4, z3)
     #u30 = np.sqrt(I0)
     #u30 = Sensor.process_CAM(u30, N, 1, delta3, type="amp")
@@ -577,20 +573,20 @@ def main():
     print('Generating simulation data images ...')
     noise = Sensor.noise
     Nim = Sensor.N_mod*Sensor.N_os
-    slm = np.zeros((N, N,Nim))
-    q = np.zeros((N, N,Nim))
+    slm = np.zeros((1080, 1920,Nim))
+    q = np.zeros((1080, 1920,Nim))
     k = 2 * np.pi / wvl
-    f = 4*z3
+    f = 2*z3
     Ny, Nx = slm[:, :, 0].shape
     xx = np.linspace(0, Nx - 1, Nx, dtype=np.float) - (Nx / 2) * np.ones(Nx, dtype=np.float)
     yy = np.linspace(0, Ny - 1, Ny, dtype=np.float) - (Ny / 2) * np.ones(Ny, dtype=np.float)
-    X, Y = float(delta4) * np.meshgrid(xx, yy)[0], float(delta4) * np.meshgrid(xx, yy)[1]
+    X, Y = float(Sensor.d_SLM) * np.meshgrid(xx, yy)[0], float(Sensor.d_SLM) * np.meshgrid(xx, yy)[1]
     R = np.sqrt(X ** 2 + Y ** 2)
     #slm = np.zeros((1080, 1920,Nim))
     for i in range(Nim-1):
         #slm[:,:,i]=Sensor.modulate((1080,1920))
         #slm[:,:,i]=Sensor.modulate((1080,1920))
-        slm[:,:,i] = Sensor.modulate_binary((N, N))
+        slm[:,:,i] = Sensor.modulate_binary((1080,1920))
         q[:,:,i] = -(1 / 2 * np.pi) * (k / (2 * f)) * R ** 2
     slm[:,:,Nim-1]=np.ones(slm[:,:,Nim-1].shape)
     q[:,:,Nim-1] = -(1 / 2 * np.pi) * (k / (2 * f)) * R ** 2
@@ -612,7 +608,7 @@ def main():
     #reconstruction
     #process the captured image : converting to amplitude and padding if needed
     y0 = Sensor.process_ims(ims, N)
-    plt.imshow(y0[:,:,0])
+    plt.imshow(y0[:,:,0], vmin=0, vmax=1)
     plt.show()
     ##Recon initilization
     N_os = Sensor.N_os # number of images per batch
