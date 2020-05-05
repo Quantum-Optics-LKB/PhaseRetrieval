@@ -128,8 +128,8 @@ class WISH_Sensor:
         :return: phi_m a modulated phase map to multiply to phi
         """
         # generate (N/10)x(N/10) random matrices that will then be upscaled through interpolation
-        h, w = int(shape[0] / 10), int(shape[1] / 10)
-        M = np.array([np.random.choice(np.array([0,1]), p=[0.5,0.5]) for _ in range(int(h*w))]).reshape(h,w)  # random intensity mask
+        h, w = int(shape[0] / 1), int(shape[1] / 1)
+        M = np.random.choice(np.array([0,1]), (h,w), p=[0.5,0.5])   # random intensity mask
         #phi_m = np.kron(M, np.ones((10, 10)))
         #phi_m = gaussian_filter(phi_m, sigma=2)
         phi_m = zoom(M, shape[0]/M.shape[0])
@@ -316,6 +316,8 @@ class WISH_Sensor:
             #scale SLM slices to the right size
             for i in range(Nim):
                 slm1 = zoom(slm2[:,:,i], delta_SLM / delta3)
+                if slm1.shape[0]>N or slm1.shape[1]>N:
+                    print("ERROR : The propagation distance must be too small and the field on the sensor is cropped !")
                 slm1 = np.pad(slm1, (int(np.ceil((N - slm1.shape[0]) / 2)), \
                                      int(np.ceil((N - slm1.shape[1]) / 2))))
                 if slm1.shape[0] > N and slm1.shape[1] > N:
@@ -533,8 +535,8 @@ class WISH_Sensor:
 
             # exit if the matrix doesn 't change much
             if jj > 1:
-                #if cp.abs(idx_converge[jj] - idx_converge[jj - 1]) / idx_converge[jj] < 5e-3:
-                if cp.abs(idx_converge[jj]) < 1e-3:
+                if cp.abs(idx_converge[jj] - idx_converge[jj - 1]) / idx_converge[jj] < 1e-4:
+                #if cp.abs(idx_converge[jj]) < 1e-3:
                     print('\nConverged. Exit the GS loop ...')
                     #idx_converge = idx_converge[0:jj]
                     idx_converge = cp.asnumpy(idx_converge[0:jj])
@@ -558,11 +560,11 @@ def main():
     #I0 = np.array(Image.open('intensities/harambe_256_full.bmp'))[:,:,0]
     #I0 = I0.astype(float)/256
     #I0 = np.pad(I0.astype(np.float) / 256, (256, 256))  # protection band
-    im = np.array(Image.open('intensities/harambe.jpg'))[:,:,0]
-    phi0 = np.array(Image.open('phases/calib_1024_full.bmp'))
-    u40 = np.pad(im.astype(np.float)/256, (256,256)) #protection band
+    im = np.array(Image.open('intensities/harambe_512_full.bmp'))[:,:,0]
+    phi0 = np.array(Image.open('phases/calib_512_full.bmp'))
+    u40 = np.pad(im.astype(np.float)/256, (512,512)) #protection band
 
-    phi0 = np.pad(phi0.astype(np.float)/256, (256,256)) #protection band
+    phi0 = np.pad(phi0.astype(np.float)/256, (512,512)) #protection band
     u40 = u40 * (np.exp(1j * phi0 * 2 * np.pi))
     N = u40.shape[0]
     #N = int((Sensor.d_SLM/Sensor.d_CAM)*I0.shape[0]+512)
@@ -576,14 +578,29 @@ def main():
     noise = Sensor.noise
     Nim = Sensor.N_mod*Sensor.N_os
     slm = np.zeros((1080, 1920,Nim))
+    q = np.zeros((1080, 1920,Nim))
+    k = 2 * np.pi / wvl
+    f = 4*z3
+    Ny, Nx = slm[:, :, 0].shape
+    xx = np.linspace(0, Nx - 1, Nx, dtype=np.float) - (Nx / 2) * np.ones(Nx, dtype=np.float)
+    yy = np.linspace(0, Ny - 1, Ny, dtype=np.float) - (Ny / 2) * np.ones(Ny, dtype=np.float)
+    X, Y = float(delta4) * np.meshgrid(xx, yy)[0], float(delta4) * np.meshgrid(xx, yy)[1]
+    R = np.sqrt(X ** 2 + Y ** 2)
     #slm = np.zeros((1080, 1920,Nim))
-    for i in range(Nim):
+    for i in range(Nim-1):
         #slm[:,:,i]=Sensor.modulate((1080,1920))
         #slm[:,:,i]=Sensor.modulate((1080,1920))
         slm[:,:,i] = Sensor.modulate_binary((1080, 1920))
+        q[:,:,i] = -(1 / 2 * np.pi) * (k / (2 * f)) * R ** 2
+    slm[:,:,Nim-1]=np.ones(slm[:,:,Nim-1].shape)
+    q[:,:,Nim-1] = -(1 / 2 * np.pi) * (k / (2 * f)) * R ** 2
     #SLM = Sensor.process_CAM(slm, N, Nim, delta3, type="phi")
     #SLM = Sensor.process_SLM(slm, N, Nim, delta3, type="phi")
     SLM = Sensor.process_SLM(slm, N, Nim, delta3, type="amp")
+    #Q = Sensor.process_SLM(q, N, Nim, delta3, type="phi")
+    SLM[SLM > 0.5] = 1
+    SLM[SLM <= 0.5] = 0
+    #SLM=SLM.astype(np.complex64)*Q
     #u30 = Sensor.process_SLM(np.sqrt(I0), N, 1, delta3, type='amp')
     #PHI0 = Sensor.process_SLM(phi0, N, 1, delta3, type='phi')
     #u30 = u30 * PHI0
@@ -595,6 +612,8 @@ def main():
     #reconstruction
     #process the captured image : converting to amplitude and padding if needed
     y0 = Sensor.process_ims(ims, N)
+    plt.imshow(y0[:,:,0])
+    plt.show()
     ##Recon initilization
     N_os = Sensor.N_os # number of images per batch
     if Nim < N_os:

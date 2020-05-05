@@ -218,6 +218,8 @@ class WISH_Sensor:
                 slm3[:,:,i] = slm1[:, 0:N]
             else :
                 slm3[:,:,i] = slm1
+            plt.imshow(slm3[:,:,i])
+            plt.show()
         SLM = np.exp(1j * 2 * np.pi * slm3).astype(np.complex64)
         return SLM
     def process_ims(self, ims: np.ndarray, N: int):
