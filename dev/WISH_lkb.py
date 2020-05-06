@@ -46,7 +46,7 @@ class WISH_Sensor:
         self.mod_intensity = float(conf["params"]["mod_intensity"])  # modulation intensity
         self.threshold = float(conf['params']['mask_threshold'])  # intensity threshold for the signal region
         self.noise = float(conf['params']['noise'])
-    def define_mask(self, I: np.ndarray, plot: bool):
+    def define_mask(self, I: np.ndarray, plot: bool = False):
         """
         A function to define the signal region automatically from the provided intensity and threshold
         :param I: intensity from which to define a signal region
@@ -77,8 +77,10 @@ class WISH_Sensor:
         delta_j = int(j_max - j_min)
         if delta_i > delta_j:
             mask_sr[i_min:i_max, i_min:i_max] = 1
+            k,l = i_min, i_max
         else:
             mask_sr[j_min:j_max, j_min:j_max] = 1
+            k,l = j_min, j_max
         if plot:
             fig = plt.figure(0)
             ax1 = fig.add_subplot(121)
@@ -89,7 +91,7 @@ class WISH_Sensor:
             cax2 = divider2.append_axes('right', size='5%', pad=0.05)
             im1=ax1.imshow(I, cmap="viridis")
             ax1.set_title("Intensity")
-            im2=ax2.imshow(mask_sr, cmap="viridis")
+            im2=ax2.imshow(mask_sr, cmap="viridis", vmin=0, vmax=1)
             ax2.set_title(f"Signal region (Threshold = {threshold})")
             scat = ax2.scatter(non_zero[0][R_max], non_zero[1][R_max], color='r')
             scat.set_label('Threshold point')
@@ -97,7 +99,7 @@ class WISH_Sensor:
             fig.colorbar(im1, cax=cax1)
             fig.colorbar(im2, cax=cax2)
             plt.show()
-        return mask_sr
+        return mask_sr, k,l
     def crop_center(self, img, cropx, cropy):
         y, x = img.shape
         startx = x // 2 - (cropx // 2)
@@ -270,9 +272,11 @@ class WISH_Sensor:
             for i in range(Nim):
                 slm1 = zoom(slm2[:,:,i], delta_SLM / delta3)
                 if slm1.shape[0]>N or slm1.shape[1]>N:
-                    print("ERROR : The propagation distance must be too small and the field on the sensor is cropped !")
-                slm1 = np.pad(slm1, (int(np.ceil((N - slm1.shape[0]) / 2)), \
-                                     int(np.ceil((N - slm1.shape[1]) / 2))))
+                    #print("\rWARNING : The propagation distance must be too small and the field on the sensor is cropped !")
+                    slm3[:,:,i]=self.crop_center(slm1, N, N)
+                else :
+                    slm1 = np.pad(slm1, (int(np.ceil((N - slm1.shape[0]) / 2)), \
+                                         int(np.ceil((N - slm1.shape[1]) / 2))))
                 if slm1.shape[0] > N and slm1.shape[1] > N:
                     slm3[:, :, i] = slm1[0:N, 0:N]
                 elif slm1.shape[0] > N:
@@ -391,7 +395,6 @@ class WISH_Sensor:
         u3_batch = cp.zeros((N, N, N_os), dtype=cp.complex64) # store all U3 gpu
         u4 = cp.zeros((N, N, N_os), dtype=cp.complex64) # gpu
         y = cp.zeros((N, N, N_os), dtype=cp.complex64) # store all U3 gpu
-
         ## initilize a3
         k = 2 * np.pi / wvl
         xx = cp.linspace(0, N - 1, N, dtype=cp.float) - (N / 2) * cp.ones(N, dtype=cp.float)
@@ -408,7 +411,7 @@ class WISH_Sensor:
             u3_batch[:,:, ii] = self.frt_gpu_s(cp.asarray(y0_batch)/Q, delta4, -z3) * cp.conj(SLM_batch) #y0_batch gpu
         #u3 = np.mean(u3_batch, 2) # average it
         u3 = cp.mean(u3_batch, 2)
-
+        #i_mask, j_mask = self.define_mask(np.abs(y0[:, :, 0]) ** 2, plot=True)[1:3]
         ## Recon run : GS loop
         idx_converge = np.empty(N_iter)
         for jj in range(N_iter):
@@ -418,15 +421,19 @@ class WISH_Sensor:
             u3_collect = cp.zeros(u3.shape, dtype=cp.complex64)
             idx_converge0 = np.empty(N_batch)
             for idx_batch in range(N_batch):
-                # put the correct batch into the GPU (no GPU for now)
+                # put the correct batch into the GPU
                 #SLM_batch = SLM[:,:, int(N_os * idx_batch): int(N_os * (idx_batch+1))]
                 #y0_batch = y0[:,:, int(N_os * idx_batch): int(N_os * (idx_batch+1))]
                 SLM_batch = cp.asarray(SLM[:,:, int(N_os * idx_batch): int(N_os * (idx_batch+1))])
-                y0_batch = cp.asarray(y0[:,:, int(N_os * idx_batch): int(N_os * (idx_batch+1))])
+                y0_batch = y0[:,:, int(N_os * idx_batch): int(N_os * (idx_batch+1))]
+                y0_batch = cp.asarray(y0_batch)
                 for _ in range(N_os):
                     #u4[:,:,_] = self.frt(u3 * SLM_batch[:,:,_], delta3, z3) # U4 is the field on the sensor
                     u4[:,:,_] = self.frt_gpu_s(u3 * SLM_batch[:,:,_], delta3, z3) # U4 is the field on the sensor
-                    y[:,:,_] = y0_batch[:,:,_] * cp.exp(1j * cp.angle(u4[:,:,_])) # force the amplitude of y to be y0
+                    y[:,:,_] = y0_batch[:,:,_] * cp.exp(1j * cp.angle(u4[:,:,_])) #impose the amplitude
+                    #[:,:,_] = u4[:,:,_]
+                    #y[i_mask:j_mask,i_mask:j_mask,_] = y0_batch[i_mask:j_mask,i_mask:j_mask,_] \
+                    #                                   * cp.exp(1j * cp.angle(u4[i_mask:j_mask,i_mask:j_mask,_]))
                     #u3_batch[:,:,_] = self.frt(y[:,:,_], delta4, -z3) * np.conj(SLM_batch[:,:,_])
                     u3_batch[:,:,_] = self.frt_gpu_s(y[:,:,_], delta4, -z3) * cp.conj(SLM_batch[:,:,_])
                 #u3_collect = u3_collect + np.mean(u3_batch, 2) # collect(add) U3 from each batch
@@ -492,10 +499,10 @@ def main():
     #I0 = np.pad(I0.astype(np.float) / 256, (256, 256))  # protection band
     im = np.array(Image.open('intensities/harambe.jpg'))[:,:,0]
     phi0 = np.array(Image.open('phases/calib_1024_full.bmp'))
-    im = zoom(im, 1.7)
-    phi0 = zoom(phi0, 1.7)
-    u40 = np.pad(im.astype(np.float)/256, (256,256)) #protection band
-    phi0 = np.pad(phi0.astype(np.float)/256, (256,256)) #protection band
+    im = zoom(im, 0.4)
+    phi0 = zoom(phi0, 0.4)
+    u40 = np.pad(im.astype(np.float)/256, (700,700)) #protection band
+    phi0 = np.pad(phi0.astype(np.float)/256, (700,700)) #protection band
     u40 = u40 * (np.exp(1j * phi0 * 2 * np.pi))
     N = u40.shape[0]
     delta3 = wvl * z3 / (N * delta4)
@@ -505,20 +512,11 @@ def main():
     noise = Sensor.noise
     Nim = Sensor.N_mod*Sensor.N_os
     slm = np.zeros((1080, 1920,Nim))
-    q = np.zeros((1080, 1920,Nim))
-    k = 2 * np.pi / wvl
-    f = 2*z3
-    Ny, Nx = slm[:, :, 0].shape
-    xx = np.linspace(0, Nx - 1, Nx, dtype=np.float) - (Nx / 2) * np.ones(Nx, dtype=np.float)
-    yy = np.linspace(0, Ny - 1, Ny, dtype=np.float) - (Ny / 2) * np.ones(Ny, dtype=np.float)
-    X, Y = float(Sensor.d_SLM) * np.meshgrid(xx, yy)[0], float(Sensor.d_SLM) * np.meshgrid(xx, yy)[1]
-    R = np.sqrt(X ** 2 + Y ** 2)
-    slm = np.zeros((1080, 1920,Nim))
-    for i in range(Nim-1):
+    for i in range(int(Nim/2)-1):
         #slm[:,:,i]=Sensor.modulate((1080,1920))
         slm[:,:,i]=Sensor.modulate_binary((1080,1920))
+        slm[:,:,i+1]=np.ones((1080,1920))-slm[:,:,i]
         #slm[:,:,i] = np.pad(Sensor.modulate_binary((540,540)), ((270,270), (690,690)), constant_values=1)
-        q[:,:,i] = -(1 / 2 * np.pi) * (k / (2 * f)) * R ** 2
     slm[:,:,Nim-1]=np.ones(slm[:,:,Nim-1].shape)
     SLM = Sensor.process_SLM(slm, N, Nim, delta3, type="amp")
     SLM[SLM > 0.5] = 1
