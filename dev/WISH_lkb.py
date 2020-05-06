@@ -7,7 +7,6 @@ After the Matlab code from Yicheng WU
 
 import numpy as np
 import matplotlib.pyplot as plt
-from LightPipes import *
 from PIL import Image
 from time import time
 from mpl_toolkits.axes_grid1 import make_axes_locatable
@@ -249,47 +248,6 @@ class WISH_Sensor:
         """
         u3 = self.frt(u4, delta4, -z3);
         return u3
-    def gen_ims(self, u3: np.ndarray, slm: np.ndarray, z3: float, delta3: float, Nim: int, noise: float):
-        """
-        Generates dummy signal in the sensor plane from the pre generated SLM patterns
-        :param u3: Initial field in the SLM plane
-        :param phi0 : Initial phase typically the calibration of the SLM
-        :param slm : Pre generated slm patterns
-        :param z3: Propagation distance in metres
-        :param delta3: "apparent" sampling size of the SLM plane (as seen by the image plane from z3 m away)
-        :param Nim: Number of images to generate
-        :param noise: Intensity of the gaussian noise added to the images
-        :return ims: Generated signal in the sensor plane of size (N,N,Nim)
-        """
-        if Nim > 60:
-            print('max Nim is 60.')
-            raise
-        N = u3.shape[0]
-        delta_SLM = self.d_SLM
-        L_SLM = delta_SLM * 1080
-        x = np.linspace(0, N - 1, N) - (N / 2) * np.ones(N)
-        y = np.linspace(0, N - 1, N) - (N / 2) * np.ones(N)
-        XX, YY = np.meshgrid(x,y)
-        A_SLM = (np.abs(XX) * delta3 < L_SLM / 2) * (np.abs(YY) * delta3 < L_SLM / 2)
-
-        if slm.dtype=='uint8':
-            slm = slm.astype(float)/256
-        ims = np.zeros((N, N, Nim), dtype=float)
-        for i in range(Nim):
-            sys.stdout.write(f"\rGenerating image {i+1} out of {Nim} ...")
-            sys.stdout.flush()
-            #a31 = u3 * A_SLM * np.exp(1j * slm[:,:,i] * 2 * np.pi)
-            a31 = u3 * A_SLM * slm[:,:,i]
-            a31 = cp.asarray(a31)  #put the field in the GPU
-            #a4 = self.frt(a31, delta3, z3)
-            a4 = self.frt_gpu(a31, delta3, z3)
-            w = noise * cp.random.rand(N, N)
-            ya = cp.abs(a4)**2 + w
-            ya[ya<0]=0
-            #ims[:,:, i] = ya
-            ims[:,:, i] = cp.asnumpy(ya)
-
-        return ims
     def process_SLM(self, slm: np.ndarray, N: int, Nim: int, delta3: float, type: str):
         """
         Scales the pre submitted SLM plane field (either amplitude of phase) to the right size taking into account the
@@ -355,70 +313,47 @@ class WISH_Sensor:
                 print("Wrong type specified : type can be 'amp' or 'phi' ! ")
                 raise
         return SLM
-
-    def process_CAM(self, slm: np.ndarray, N: int, Nim: int, delta3: float, type: str):
+    def gen_ims(self, u3: np.ndarray, slm: np.ndarray, z3: float, delta3: float, Nim: int, noise: float):
         """
-        Scales the pre submitted SLM plane field (either amplitude of phase) to the right size taking into account the
-        apparent size of the SLM in the sensor field of view.
-        :param slm: Input SLM patterns
-        :param N: Size of the calculation (typically the sensor number of pixels)
+        Generates dummy signal in the sensor plane from the pre generated SLM patterns
+        :param u3: Initial field in the SLM plane
+        :param phi0 : Initial phase typically the calibration of the SLM
+        :param slm : Pre generated slm patterns
+        :param z3: Propagation distance in metres
+        :param delta3: "apparent" sampling size of the SLM plane (as seen by the image plane from z3 m away)
         :param Nim: Number of images to generate
-        :param delta3: Sampling size of the SLM plane (typically the "apparent" sampling size wvl*z/N*d_Sensor )
-        :param type : "amp" / "phi" amplitude or phase pattern.
-        :return SLM: Rescaled and properly shaped SLM patterns of size (N,N,Nim)
+        :param noise: Intensity of the gaussian noise added to the images
+        :return ims: Generated signal in the sensor plane of size (N,N,Nim)
         """
-        delta_CAM = self.d_CAM
-        if slm.dtype == 'uint8':
-            slm = slm.astype(float) / 256
-        # slm2 = slm[:, 421: 1501, 0:Nim] #takes a 1080x1080 square of the SLM
-        if slm.ndim == 3:
-            slm2 = slm[:, :, 0:Nim]
-            slm3 = np.empty((N, N, Nim))
-            # could replace with my modulate function
-            # scale SLM slices to the right size
-            for i in range(Nim):
-                slm1 = zoom(slm2[:, :, i], delta_CAM / delta3)
-                slm1 = np.pad(slm1, (int(np.ceil((N - slm1.shape[0]) / 2)), \
-                                     int(np.ceil((N - slm1.shape[1]) / 2))))
-                if slm1.shape[0] > N and slm1.shape[1] > N:
-                    slm3[:, :, i] = slm1[0:N, 0:N]
-                elif slm1.shape[0] > N:
-                    slm3[:, :, i] = slm1[0:N, :]
-                elif slm1.shape[1] > N:
-                    slm3[:, :, i] = slm1[:, 0:N]
-                else:
-                    slm3[:, :, i] = slm1
-            if type == "phi":
-                SLM = np.exp(1j * 2 * np.pi * slm3).astype(np.complex64)
-            elif type == "amp":
-                SLM = slm3
-            else:
-                print("Wrong type specified : type can be 'amp' or 'phi' ! ")
-                raise
-        elif slm.ndim == 2:
-            slm2 = slm
-            slm3 = np.empty((N, N))
-            # could replace with my modulate function
-            # scale SLM slices to the right size
-            slm1 = zoom(slm2, delta_CAM / delta3)
-            slm1 = np.pad(slm1, (int(np.ceil((N - slm1.shape[0]) / 2)), \
-                                 int(np.ceil((N - slm1.shape[1]) / 2))))
-            if slm1.shape[0] > N and slm1.shape[1] > N:
-                slm3 = slm1[0:N, 0:N]
-            elif slm1.shape[0] > N:
-                slm3 = slm1[0:N, :]
-            elif slm1.shape[1] > N:
-                slm3 = slm1[:, 0:N]
-            else:
-                slm3 = slm1
-            if type == "phi":
-                SLM = np.exp(1j * 2 * np.pi * slm3).astype(np.complex64)
-            elif type == "amp":
-                SLM = slm3
-            else:
-                print("Wrong type specified : type can be 'amp' or 'phi' ! ")
-                raise
-        return SLM
+        if Nim > 60:
+            print('max Nim is 60.')
+            raise
+        N = u3.shape[0]
+        delta_SLM = self.d_SLM
+        L_SLM = delta_SLM * 1080
+        x = np.linspace(0, N - 1, N) - (N / 2) * np.ones(N)
+        y = np.linspace(0, N - 1, N) - (N / 2) * np.ones(N)
+        XX, YY = np.meshgrid(x,y)
+        A_SLM = (np.abs(XX) * delta3 < L_SLM / 2) * (np.abs(YY) * delta3 < L_SLM / 2)
+
+        if slm.dtype=='uint8':
+            slm = slm.astype(float)/256
+        ims = np.zeros((N, N, Nim), dtype=float)
+        for i in range(Nim):
+            sys.stdout.write(f"\rGenerating image {i+1} out of {Nim} ...")
+            sys.stdout.flush()
+            #a31 = u3 * A_SLM * np.exp(1j * slm[:,:,i] * 2 * np.pi)
+            a31 = u3 * A_SLM * slm[:,:,i]
+            a31 = cp.asarray(a31)  #put the field in the GPU
+            #a4 = self.frt(a31, delta3, z3)
+            a4 = self.frt_gpu(a31, delta3, z3)
+            w = noise * cp.random.rand(N, N)
+            ya = cp.abs(a4)**2 + w
+            ya[ya<0]=0
+            #ims[:,:, i] = ya
+            ims[:,:, i] = cp.asnumpy(ya)
+            del a31, a4, ya
+        return ims
     def process_ims(self, ims: np.ndarray, N: int):
         """
         Converts images to amplitudes and eventually resizes them.
@@ -531,7 +466,7 @@ class WISH_Sensor:
             # exit if the matrix doesn 't change much
             if jj > 1:
                 if cp.abs(idx_converge[jj] - idx_converge[jj - 1]) / idx_converge[jj] < 1e-4:
-                #if cp.abs(idx_converge[jj]) < 1e-3:
+                #if cp.abs(idx_converge[jj]) < 5e-2:
                     print('\nConverged. Exit the GS loop ...')
                     #idx_converge = idx_converge[0:jj]
                     idx_converge = cp.asnumpy(idx_converge[0:jj])
@@ -552,23 +487,19 @@ def main():
     wvl = Sensor.wavelength
     z3 = Sensor.z
     delta4 = Sensor.d_CAM
-    I0 = np.array(Image.open('intensities/harambe_512_full.bmp'))[:,:,0]
-    I0 = I0.astype(float)/256
-    I0 = np.pad(I0.astype(np.float) / 256, (256, 256))  # protection band
-    im = np.array(Image.open('intensities/harambe_512_full.bmp'))[:,:,0]
-    N_sr = im.shape[0]
-    phi0 = np.array(Image.open('phases/calib_512_full.bmp'))
-    phi1 = np.pad(phi0.astype(np.float) / 256, (256, 256))  # protection band
-    u40 = np.pad(im.astype(np.float)/256, (128,128)) #protection band
-    phi0 = np.pad(phi0.astype(np.float)/256, (128,128)) #protection band
+    #I0 = np.array(Image.open('intensities/harambe_512_full.bmp'))[:,:,0]
+    #I0 = I0.astype(float)/256
+    #I0 = np.pad(I0.astype(np.float) / 256, (256, 256))  # protection band
+    im = np.array(Image.open('intensities/harambe.jpg'))[:,:,0]
+    phi0 = np.array(Image.open('phases/calib_1024_full.bmp'))
+    im = zoom(im, 1.7)
+    phi0 = zoom(phi0, 1.7)
+    u40 = np.pad(im.astype(np.float)/256, (256,256)) #protection band
+    phi0 = np.pad(phi0.astype(np.float)/256, (256,256)) #protection band
     u40 = u40 * (np.exp(1j * phi0 * 2 * np.pi))
     N = u40.shape[0]
-    #N = int((Sensor.d_SLM/Sensor.d_CAM)*I0.shape[0]+512)
     delta3 = wvl * z3 / (N * delta4)
     u30 = Sensor.u4Tou3(u40, delta4, z3)
-    #u30 = np.sqrt(I0)
-    #u30 = Sensor.process_CAM(u30, N, 1, delta3, type="amp")
-    #PHI0 = Sensor.process_CAM(phi0, N, 1, delta3, type="phi")
     ## forward prop to the sensor plane with SLM modulation
     print('Generating simulation data images ...')
     noise = Sensor.noise
@@ -582,29 +513,25 @@ def main():
     yy = np.linspace(0, Ny - 1, Ny, dtype=np.float) - (Ny / 2) * np.ones(Ny, dtype=np.float)
     X, Y = float(Sensor.d_SLM) * np.meshgrid(xx, yy)[0], float(Sensor.d_SLM) * np.meshgrid(xx, yy)[1]
     R = np.sqrt(X ** 2 + Y ** 2)
-    #slm = np.zeros((1080, 1920,Nim))
+    slm = np.zeros((1080, 1920,Nim))
     for i in range(Nim-1):
         #slm[:,:,i]=Sensor.modulate((1080,1920))
-        #slm[:,:,i]=Sensor.modulate((1080,1920))
-        slm[:,:,i] = Sensor.modulate_binary((1080,1920))
+        slm[:,:,i]=Sensor.modulate_binary((1080,1920))
+        #slm[:,:,i] = np.pad(Sensor.modulate_binary((540,540)), ((270,270), (690,690)), constant_values=1)
         q[:,:,i] = -(1 / 2 * np.pi) * (k / (2 * f)) * R ** 2
     slm[:,:,Nim-1]=np.ones(slm[:,:,Nim-1].shape)
-    q[:,:,Nim-1] = -(1 / 2 * np.pi) * (k / (2 * f)) * R ** 2
-    #SLM = Sensor.process_CAM(slm, N, Nim, delta3, type="phi")
-    #SLM = Sensor.process_SLM(slm, N, Nim, delta3, type="phi")
     SLM = Sensor.process_SLM(slm, N, Nim, delta3, type="amp")
-    #Q = Sensor.process_SLM(q, N, Nim, delta3, type="phi")
     SLM[SLM > 0.5] = 1
     SLM[SLM <= 0.5] = 0
-    #SLM=SLM.astype(np.complex64)*Q
-    #u30 = Sensor.process_SLM(np.sqrt(I0), N, 1, delta3, type='amp')
-    #PHI0 = Sensor.process_SLM(phi0, N, 1, delta3, type='phi')
-    #u30 = u30 * PHI0
+    fig=plt.figure()
+    ax1 = fig.add_subplot(121)
+    ax2 = fig.add_subplot(122)
+    ax1.imshow(SLM[:,:,0])
+    ax2.imshow(np.abs(u30))
+    plt.show()
     ims = Sensor.gen_ims(u30, SLM, z3, delta3, Nim, noise)
 
     print('\nCaptured images are simulated')
-    #clear u30
-    #del u30
     #reconstruction
     #process the captured image : converting to amplitude and padding if needed
     y0 = Sensor.process_ims(ims, N)
