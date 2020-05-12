@@ -362,7 +362,6 @@ class WISH_Sensor:
         R = cp.sqrt(X ** 2 + Y ** 2)
         Q = cp.exp(1j*(k/(2*z3))*R**2)
         for ii in range(N_os):
-            #SLM_batch = SLM[:,:, ii]
             SLM_batch = SLM[:,:, ii]
             y0_batch = y0[:,:, ii]
             u3_batch[:,:, ii] = self.frt_gpu_s(y0_batch/Q, delta4, self.wavelength, -z3) * cp.conj(SLM_batch)
@@ -382,12 +381,9 @@ class WISH_Sensor:
                     fft_plan0 = fftpack.get_fft_plan(u3 * SLM_batch[:,:,_], axes=(0, 1))
                     u4[:,:,_] = self.frt_gpu_s(cp.multiply(u3, SLM_batch[:,:,_]), delta3, self.wavelength, z3, plan=fft_plan0) # U4 is the field on the sensor
                     y[:,:,_] = cp.multiply(y0_batch[:,:,_], cp.exp(1j * cp.angle(u4[:,:,_]))) #impose the amplitude
-                    #[:,:,_] = u4[:,:,_]
                     #y[i_mask:j_mask,i_mask:j_mask,_] = y0_batch[i_mask:j_mask,i_mask:j_mask,_] \
                     #                                   * cp.exp(1j * cp.angle(u4[i_mask:j_mask,i_mask:j_mask,_]))
                     fft_plan1 = fftpack.get_fft_plan(y[:,:,_], axes=(0, 1))
-                    #u3_batch[:, :, _] = self.frt_gpu_s(y[:, :, _], delta4, self.wavelength, -z3,
-                    #                                   plan=fft_plan1) * cp.conj(SLM_batch[:, :, _])
                     u3_batch[:, :, _] = cp.multiply(
                         self.frt_gpu_s(y[:, :, _], delta4, self.wavelength, -z3, plan=fft_plan1),
                         cp.conj(SLM_batch[:, :, _]))
@@ -462,11 +458,11 @@ def main():
     noise = Sensor.noise
     Nim = Sensor.N_mod*Sensor.N_os
     slm = cp.zeros((1080, 1920,Nim))
-    for i in range(Nim-1):
+    for i in range(Nim):
         #slm[:,:,i]=Sensor.modulate((1080,1920))
         slm[:,:,i]=cp.asarray(Sensor.modulate_binary((1080,1920)))
         #slm[:,:,i] = np.pad(Sensor.modulate_binary((540,540)), ((270,270), (690,690)), constant_values=1)
-    slm[:,:,Nim-1]=cp.ones(slm[:,:,Nim-1].shape)
+    slm[:,:,0:Sensor.N_os]=cp.ones(slm[:,:,0:Sensor.N_os].shape)
     #SLM = Sensor.process_SLM(slm, N, Nim, delta3, type="phi")
     SLM = Sensor.process_SLM(slm, N, Nim, delta3, type="amp")
     SLM[SLM > 0.5] = 1
@@ -474,16 +470,16 @@ def main():
     fig=plt.figure()
     ax1 = fig.add_subplot(121)
     ax2 = fig.add_subplot(122)
-    ax1.imshow(cp.asnumpy(SLM[:,:,0]), vmin=0, vmax=1)
+    ax1.imshow(cp.asnumpy(SLM[:,:,1]), vmin=0, vmax=1)
     ax2.imshow(cp.asnumpy(cp.abs(u30)), vmin=0, vmax=1)
     plt.show()
     ims = Sensor.gen_ims(u30, SLM, z3, delta3, Nim, noise)
-
+    del u30
     print('\nCaptured images are simulated')
     #reconstruction
     #process the captured image : converting to amplitude and padding if needed
     y0 = Sensor.process_ims(ims, N)
-    plt.imshow(cp.asnumpy(y0[:,:,0]), vmin=0, vmax=1)
+    plt.imshow(cp.asnumpy(y0[:,:,1]), vmin=0, vmax=1)
     plt.show()
     ##Recon initilization
     N_os = Sensor.N_os # number of images per batch
