@@ -341,6 +341,25 @@ class WISH_Sensor:
         :return u4_est, idx_converge: Estimated field of size (N,N) and the convergence indices to check convergence
                                       speed
         """
+        def batch_process(self, u4, y, y0_batch, idx_converge0, SLM_batch, idx_batch, return_dic):
+            for _ in range(N_os):
+                fft_plan0 = fftpack.get_fft_plan(u3 * SLM_batch[:,:,_], axes=(0, 1))
+                u4[:,:,_] = self.frt_gpu_s(cp.multiply(u3, SLM_batch[:,:,_]), delta3, self.wavelength, z3, plan=fft_plan0) # U4 is the field on the sensor
+                y[:,:,_] = cp.multiply(y0_batch[:,:,_], cp.exp(1j * cp.angle(u4[:,:,_]))) #impose the amplitude
+                #[:,:,_] = u4[:,:,_]
+                #y[i_mask:j_mask,i_mask:j_mask,_] = y0_batch[i_mask:j_mask,i_mask:j_mask,_] \
+                #                                   * cp.exp(1j * cp.angle(u4[i_mask:j_mask,i_mask:j_mask,_]))
+                fft_plan1 = fftpack.get_fft_plan(y[:,:,_], axes=(0, 1))
+                #u3_batch[:, :, _] = self.frt_gpu_s(y[:, :, _], delta4, self.wavelength, -z3,
+                #                                   plan=fft_plan1) * cp.conj(SLM_batch[:, :, _])
+                u3_batch[:, :, _] = cp.multiply(
+                    self.frt_gpu_s(y[:, :, _], delta4, self.wavelength, -z3, plan=fft_plan1),
+                    cp.conj(SLM_batch[:, :, _]))
+            u3_collect0 = cp.mean(u3_batch, 2)
+            return_dic[str(idx_batch)]=u3_collect0
+                # convergence index matrix for each batch
+            idx_converge0[idx_batch] = (1/N)*cp.linalg.norm((cp.abs(u4)-y0_batch)*(y0_batch>0))
+
         wvl = self.wavelength
         z3 = self.z
         ## parameters
