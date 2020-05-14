@@ -15,8 +15,8 @@ import sys
 import configparser
 import cupy as cp
 import cupyx.scipy.fft as fftpack
-from numba import jit
 from scipy.ndimage import zoom, gaussian_filter
+
 
 """
 IMPORTANT NOTE : If the cupy module won't work, check that you have the right version of CuPy installed for you version
@@ -25,12 +25,8 @@ If you are sure of you CuPy install, then it is possible that your nvidia kernel
 bars the access to CuPy. In this case reload your Nvidia module using these commands (in Unix) :
     sudo rmmod nvidia_uvm
     sudo modprobe nvidia_uvm
-This usually happens after waking up you computer. You can always remove the lines with cupy code / "gpu" functions and 
-replace them with  the surrounding commented lines to run the code in CPU mode.
+This usually happens after waking up you computer. A CPU version of the code is also available WISH_lkb_cpu.py
 """
-
-
-
 
 class WISH_Sensor:
     def __init__(self, cfg_path):
@@ -507,24 +503,33 @@ def main():
     noise = Sensor.noise
     Nim = Sensor.N_mod*Sensor.N_os
     slm = np.zeros((1080, 1920,Nim))
-    #for i in range(int(Nim/2)):
-    for i in range(Nim):
-        slm[:,:,i]=Sensor.modulate((1080,1920))
-        #slm[:,:,2*i]=Sensor.modulate_binary((1080,1920))
-        #slm[:,:,2*i +1]=np.ones((1080,1920))-slm[:,:,2*i]
-        #slm[:,:,i] = np.pad(Sensor.modulate_binary((540,540)), ((270,270), (690,690)), constant_values=1)
-    slm[:,:,0:Sensor.N_os]=np.ones(slm[:,:,0:Sensor.N_os].shape) #for amplitude modulation
-    SLM = Sensor.process_SLM(slm, N, Nim, delta3, type="phi") #to switch between phase and intensity modulation
-    #SLM = Sensor.process_SLM(slm, N, Nim, delta3, type="amp")
-    #SLM[SLM > 0.5] = 1 #only for amp modulation
-    #SLM[SLM <= 0.5] = 0
-    fig=plt.figure(1)
-    ax1 = fig.add_subplot(121)
-    ax2 = fig.add_subplot(122)
-    #ax1.imshow(SLM[:,:,1], vmin=0, vmax = 1)
-    ax1.imshow(np.angle(SLM[:,:,1]), vmin=-np.pi, vmax = np.pi)
-    ax2.imshow(np.abs(u30), vmin=0, vmax=1)
-    plt.show()
+    slm_type = 'DMD'
+    if slm_type=='DMD':
+        for i in range(int(Nim/2)):
+            slm[:, :, 2 * i] = Sensor.modulate_binary((1080, 1920))
+            slm[:, :, 2 * i + 1] = np.ones((1080, 1920)) - slm[:, :, 2 * i]
+    elif slm_type=='SLM':
+        for i in range(Nim):
+            slm[:,:,i]=Sensor.modulate((1080,1920))
+    slm[:,:,0:Sensor.N_os]=np.ones(slm[:,:,0:Sensor.N_os].shape)
+    if slm_type =='DMD':
+        SLM = Sensor.process_SLM(slm, N, Nim, delta3, type="amp")
+        SLM[SLM > 0.5] = 1
+        SLM[SLM <= 0.5] = 0
+        fig = plt.figure(1)
+        ax1 = fig.add_subplot(121)
+        ax2 = fig.add_subplot(122)
+        ax1.imshow(SLM[:, :, 1], vmin=0, vmax=1)
+        ax2.imshow(np.abs(u30), vmin=0, vmax=1)
+        plt.show()
+    elif slm_type == 'SLM':
+        SLM = Sensor.process_SLM(slm, N, Nim, delta3, type="phi")
+        fig = plt.figure(1)
+        ax1 = fig.add_subplot(121)
+        ax2 = fig.add_subplot(122)
+        ax1.imshow(np.angle(SLM[:,:,1]), vmin=-np.pi, vmax = np.pi)
+        ax2.imshow(np.abs(u30), vmin=0, vmax=1)
+        plt.show()
     ims = Sensor.gen_ims(u30, SLM, z3, delta3, Nim, noise)
 
     print('\nCaptured images are simulated')
