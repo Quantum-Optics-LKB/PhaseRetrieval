@@ -518,7 +518,9 @@ def main():
     N_os = Sensor.N_os # number of images per batch
     N_iter = Sensor.N_gs  # number of GS iterations
     N_batch = Sensor.N_mod  # number of batches
+    T_run_0=time.time()
     u3_est, u4_est, idx_converge = Sensor.WISHrun(y0, SLM, delta3, delta4, N_os, N_iter, N_batch, plot=False)
+    T_run=time.time()-T_run_0
     #phase_rms =(1/N)*min([np.linalg.norm((np.angle(u40)-np.angle(np.exp(1j*th)*u4_est))*(np.abs(u40)>0)) \
     phase_rms = cp.corrcoef(cp.ravel(cp.angle(cp.asarray(u40))), cp.ravel(cp.angle(u4_est)))[0,1]
     u3_est = cp.asnumpy(u3_est)
@@ -527,8 +529,8 @@ def main():
     print(f"\n Phase correlation coefficient is : {phase_rms}")
     #total time
     T= time.time()-T0
+    print(f"\n Time spent in the GS loop : {T_run} s")
     print(f"\n Total time elapsed : {T} s")
-
     fig=plt.figure()
     ax1 = fig.add_subplot(231)
     ax2 = fig.add_subplot(232)
