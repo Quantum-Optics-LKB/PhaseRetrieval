@@ -15,7 +15,8 @@ import sys
 import configparser
 import cupy as cp
 import cupyx.scipy.fft as fftpack
-from scipy.ndimage import zoom, gaussian_filter
+from cupyx.scipy.ndimage import zoom
+#from WISH import WISH_Sensor
 
 
 """
@@ -28,6 +29,7 @@ bars the access to CuPy. In this case reload your Nvidia module using these comm
 This usually happens after waking up you computer. A CPU version of the code is also available WISH_lkb_cpu.py
 """
 
+
 class WISH_Sensor:
     def __init__(self, cfg_path):
         conf = configparser.ConfigParser()
@@ -39,7 +41,6 @@ class WISH_Sensor:
         self.N_gs = int(conf["params"]["N_gs"])  # number of GS iterations
         self.N_mod = int(conf["params"]["N_mod"])  # number of modulation steps
         self.N_os = int(conf["params"]["N_os"])   #number of observations per image (to avg noise)
-        self.mod_intensity = float(conf["params"]["mod_intensity"])  # modulation intensity
         self.threshold = float(conf['params']['mask_threshold'])  # intensity threshold for the signal region
         self.noise = float(conf['params']['noise'])
     def define_mask(self, I: np.ndarray, plot: bool = False):
@@ -101,33 +102,30 @@ class WISH_Sensor:
         startx = x // 2 - (cropx // 2)
         starty = y // 2 - (cropy // 2)
         return img[starty:starty + cropy, startx:startx + cropx]
-    def modulate(self, shape: tuple):
+    @staticmethod
+    def modulate(shape: tuple, pxsize: int = 10):
         """
         A function to randomly modulating a phase map without introducing too much high frequency noise
         :param phi: Phase map to be modulated
         :return: phi_m a modulated phase map to multiply to phi
         """
-        x = self.mod_intensity
         # generate (N/10)x(N/10) random matrices that will then be upscaled through interpolation
-        h, w = int(shape[0] / 10), int(shape[1] / 10)
-        M = np.random.rand(h, w)  # random matrix between [-1 , 1]
-        phi_m = zoom(M, shape[0]/M.shape[0])
-        phi_m =  x * phi_m
+        h, w = int(shape[0] / pxsize), int(shape[1] / pxsize)
+        M = cp.random.rand(h, w)  # random matrix between [-1 , 1]
+        phi_m = cp.asnumpy(zoom(M, shape[0]/M.shape[0]))
         return phi_m
     @staticmethod
-    def modulate_binary(shape: tuple):
+    def modulate_binary(shape: tuple, pxsize: int = 10):
         """
         A function to randomly modulating a phase map without introducing too much high frequency noise
         :param phi: Phase map to be modulated
         :return: phi_m a modulated phase map to multiply to phi
         """
         # generate (N/10)x(N/10) random matrices that will then be upscaled through interpolation
-        h, w = int(shape[0] / 10), int(shape[1] / 10)
-        M=np.zeros((h,w))
-        M = np.random.choice(np.array([0,1]), (h,w))   # random intensity mask
+        h, w = int(shape[0] / pxsize), int(shape[1] / pxsize)
+        M = cp.random.choice(cp.asarray([0,1]), (h,w))   # random intensity mask
         #phi_m = np.kron(M, np.ones((10, 10)))
-        #phi_m = gaussian_filter(phi_m, sigma=2)
-        phi_m = zoom(M, shape[0]/M.shape[0])
+        phi_m = cp.asnumpy(zoom(M, shape[0]/M.shape[0]))
         return phi_m
     def gaussian_profile(self, I: np.ndarray, sigma: float):
         """
@@ -171,23 +169,6 @@ class WISH_Sensor:
             A = D * Q2 * (d1**2) * np.fft.fftshift(np.fft.fft2(np.fft.ifftshift(A0 * Q1)))
         elif z<0:
             A = D * Q2 * ((N*d1) ** 2) * np.fft.fftshift(np.fft.ifft2(np.fft.ifftshift(A0 * Q1)))
-        return A
-    @staticmethod
-    def frt_s(A0: np.ndarray, d1: float, wv: float, z: float):
-        """
-        Simplified Fresnel propagation optimized for GPU computing. Runs on a GPU using CuPy with a CUDA backend.
-        :param A0: Field to propagate
-        :param d1: Sampling size of the field A0
-        :param z : Propagation distance in metres
-        :return: A : Propagated field
-        """
-        k = 2*np.pi / wv
-        N = A0.shape[0]
-        D = 1 /(1j*wv*abs(z))
-        if z >=0:
-            A =D * (d1**2) * np.fft.fftshift(np.fft.fft2(np.fft.ifftshift(A0), norm='ortho'))
-        elif z<0:
-            A =D * ((N*d1) ** 2) * np.fft.fftshift(np.fft.ifft2(np.fft.ifftshift(A0), norm='ortho'))
         return A
     @staticmethod
     def frt_gpu(A0: np.ndarray, d1: float, wv: float, z: float):
@@ -251,27 +232,27 @@ class WISH_Sensor:
         """
         u3 = self.frt(u4, delta4, self.wavelength, -z3);
         return u3
-    def process_SLM(self, slm: np.ndarray, N: int, Nim: int, delta3: float, type: str):
+    def process_SLM(self, slm: np.ndarray, N: int, N_batch: int, delta3: float, type: str):
         """
         Scales the pre submitted SLM plane field (either amplitude of phase) to the right size taking into account the
         apparent size of the SLM in the sensor field of view.
         :param slm: Input SLM patterns
         :param N: Size of the calculation (typically the sensor number of pixels)
-        :param Nim: Number of images to generate
+        :param N_batch: Number of images to generate
         :param delta3: Sampling size of the SLM plane (typically the "apparent" sampling size wvl*z/N*d_Sensor )
         :param type : "amp" / "phi" amplitude or phase pattern.
-        :return SLM: Rescaled and properly shaped SLM patterns of size (N,N,Nim)
+        :return SLM: Rescaled and properly shaped SLM patterns of size (N,N,N_batch)
         """
         delta_SLM = self.d_SLM
         if slm.dtype == 'uint8':
             slm = slm.astype(float)/256.
         if slm.ndim == 3:
-            slm2 = slm[:, 421 : 1501, 0:Nim] #takes a 1080x1080 square of the SLM
-            #slm2 = slm[:, :, 0:Nim]
-            slm3 = np.empty((N,N,Nim))
+            slm2 = slm[:, 421 : 1501, 0:N_batch] #takes a 1080x1080 square of the SLM
+            #slm2 = slm[:, :, 0:N_batch]
+            slm3 = np.empty((N,N,N_batch))
             #scale SLM slices to the right size
-            for i in range(Nim):
-                slm1 = zoom(slm2[:,:,i], delta_SLM / delta3)
+            for i in range(N_batch):
+                slm1 = cp.asnumpy(zoom(cp.asarray(slm2[:,:,i]), delta_SLM / delta3))
                 if slm1.shape[0]>N or slm1.shape[1]>N:
                     #print("\rWARNING : The propagation distance must be too small and the field on the sensor is cropped !")
                     slm3[:,:,i]=self.crop_center(slm1, N, N)
@@ -289,7 +270,7 @@ class WISH_Sensor:
             if type == "phi":
                 SLM = np.exp(1j * 2 * np.pi * slm3).astype(np.complex64)
             elif type == "amp":
-                SLM = slm3
+                SLM = slm3.astype(np.complex64)
             else :
                 print("Wrong type specified : type can be 'amp' or 'phi' ! ")
                 raise
@@ -313,12 +294,12 @@ class WISH_Sensor:
             if type == "phi":
                 SLM = np.exp(1j * 2 * np.pi * slm3).astype(np.complex64)
             elif type == "amp":
-                SLM = slm3
+                SLM = slm3.astype(np.complex64)
             else:
                 print("Wrong type specified : type can be 'amp' or 'phi' ! ")
                 raise
         return SLM
-    def gen_ims(self, u3: np.ndarray, slm: np.ndarray, z3: float, delta3: float, Nim: int, noise: float):
+    def gen_ims(self, u3: np.ndarray, slm: np.ndarray, z3: float, delta3: float,N_batch : int, N_os: int, noise: float):
         """
         Generates dummy signal in the sensor plane from the pre generated SLM patterns
         :param u3: Initial field in the SLM plane
@@ -331,6 +312,7 @@ class WISH_Sensor:
         :return ims: Generated signal in the sensor plane of size (N,N,Nim)
         """
         N = u3.shape[0]
+        Nim = N_batch*N_os
         delta_SLM = self.d_SLM
         L_SLM = delta_SLM * 1080
         x = np.linspace(0, N - 1, N) - (N / 2) * np.ones(N)
@@ -344,15 +326,12 @@ class WISH_Sensor:
         for i in range(Nim):
             sys.stdout.write(f"\rGenerating image {i+1} out of {Nim} ...")
             sys.stdout.flush()
-            #a31 = u3 * A_SLM * np.exp(1j * slm[:,:,i] * 2 * np.pi)
-            a31 = u3 * A_SLM * slm[:,:,i]
+            a31 = u3 * A_SLM * slm[:,:,i//N_os]
             a31 = cp.asarray(a31)  #put the field in the GPU
-            #a4 = self.frt(a31, delta3, z3)
             a4 = self.frt_gpu(a31, delta3, self.wavelength, z3)
             w = noise * cp.random.rand(N, N)
             ya = cp.abs(a4)**2 + w
             ya[ya<0]=0
-            #ims[:,:, i] = ya
             ims[:,:, i] = cp.asnumpy(ya)
             del a31, a4, ya
         return ims
@@ -402,9 +381,8 @@ class WISH_Sensor:
         Q = cp.exp(1j*(k/(2*z3))*R**2)
         SLM = cp.asarray(SLM)
         y0 = cp.asarray(y0)
+        SLM_batch = SLM[:, :, 0]
         for ii in range(N_os):
-            #SLM_batch = SLM[:,:, ii]
-            SLM_batch = SLM[:,:, ii]
             y0_batch = y0[:,:, ii]
             u3_batch[:,:, ii] = self.frt_gpu_s(y0_batch/Q, delta4, self.wavelength, -z3) * cp.conj(SLM_batch) #y0_batch gpu
         u3 = cp.mean(u3_batch, 2)
@@ -418,20 +396,19 @@ class WISH_Sensor:
             idx_converge0 = np.empty(N_batch)
             for idx_batch in range(N_batch):
                 # put the correct batch into the GPU
-                SLM_batch = SLM[:,:, int(N_os * idx_batch): int(N_os * (idx_batch+1))]
+                SLM_batch = SLM[:,:, idx_batch]
                 y0_batch = y0[:,:, int(N_os * idx_batch): int(N_os * (idx_batch+1))]
                 for _ in range(N_os):
-                    fft_plan0 = fftpack.get_fft_plan(u3 * SLM_batch[:,:,_], axes=(0, 1))
-                    u4[:,:,_] = self.frt_gpu_s(u3 * SLM_batch[:,:,_], delta3, self.wavelength, z3, plan = fft_plan0) # U4 is the field on the sensor
+                    u4[:,:,_] = self.frt_gpu_s(u3 * SLM_batch, delta3, self.wavelength, z3) # U4 is the field on the sensor
                     y[:,:,_] = y0_batch[:,:,_] * cp.exp(1j * cp.angle(u4[:,:,_])) #impose the amplitude
                     #[:,:,_] = u4[:,:,_]
                     #y[i_mask:j_mask,i_mask:j_mask,_] = y0_batch[i_mask:j_mask,i_mask:j_mask,_] \
                     #                                   * cp.exp(1j * cp.angle(u4[i_mask:j_mask,i_mask:j_mask,_]))
-                    fft_plan1 = fftpack.get_fft_plan(y[:,:,_], axes=(0, 1))
-                    u3_batch[:,:,_] = self.frt_gpu_s(y[:,:,_], delta4, self.wavelength, -z3, plan = fft_plan1) * cp.conj(SLM_batch[:,:,_])
+                    u3_batch[:,:,_] = self.frt_gpu_s(y[:,:,_], delta4, self.wavelength, -z3) * cp.conj(SLM_batch)
                 u3_collect = u3_collect + cp.mean(u3_batch, 2) # collect(add) U3 from each batch
                 # convergence index matrix for each batch
-                idx_converge0[idx_batch] = (1/N)*cp.linalg.norm((cp.abs(u4)-y0_batch)*(y0_batch>0))
+                idx_converge0[idx_batch] = (1/N)*cp.linalg.norm((cp.abs(u4)-(1/N**2)*cp.sum(cp.abs(SLM_batch))*
+                                                                 y0_batch)*(y0_batch>0)) #eventual mask absorption
 
             u3 = (u3_collect / N_batch) # average over batches
             idx_converge[jj] = np.mean(idx_converge0) # sum over batches
@@ -470,8 +447,7 @@ class WISH_Sensor:
                     idx_converge = cp.asnumpy(idx_converge[0:jj])
                     break
         # u4_est = self.frt(u3, delta3, z3)
-        u4_est = cp.asnumpy(self.frt_gpu_s(u3, delta3, self.wavelength, z3) * Q) #propagate solution to sensor plane
-        u3 = cp.asnumpy(u3)
+        u4_est = self.frt_gpu_s(u3, delta3, self.wavelength, z3) * Q #propagate solution to sensor plane
         return u3, u4_est, idx_converge
 
 
@@ -490,65 +466,65 @@ def main():
     #I0 = np.pad(I0.astype(np.float) / 256, (256, 256))  # protection band
     im = np.array(Image.open('intensities/I0_1024_full.bmp'))[:,:,0]
     phi0 = np.array(Image.open('phases/calib_1024_full.bmp'))
-    im = zoom(im, 1)
-    phi0 = zoom(phi0, 1)
+    im = cp.asnumpy(zoom(cp.asarray(im), 1))
+    phi0 = cp.asnumpy(zoom(cp.asarray(phi0), 1))
     u40 = np.pad(im.astype(np.float)/256, (128,128)) #protection band
     phi0 = np.pad(phi0.astype(np.float)/256, (128,128)) #protection band
     u40 = u40 * (np.exp(1j * phi0 * 2 * np.pi))
+    u40=u40.astype(np.complex64)
     N = u40.shape[0]
     delta3 = wvl * z3 / (N * delta4)
     u30 = Sensor.u4Tou3(u40, delta4, z3)
     ## forward prop to the sensor plane with SLM modulation
     print('Generating simulation data images ...')
     noise = Sensor.noise
-    Nim = Sensor.N_mod*Sensor.N_os
-    slm = np.zeros((1080, 1920,Nim))
+    slm = np.zeros((1080, 1920,Sensor.N_mod))
     slm_type = 'DMD'
     if slm_type=='DMD':
-        for i in range(int(Nim/2)):
-            slm[:, :, 2 * i] = Sensor.modulate_binary((1080, 1920))
+        for i in range(int(Sensor.N_mod/2)):
+            slm[:, :, 2 * i] = Sensor.modulate_binary((1080, 1920), pxsize=1)
             slm[:, :, 2 * i + 1] = np.ones((1080, 1920)) - slm[:, :, 2 * i]
     elif slm_type=='SLM':
-        for i in range(Nim):
+        for i in range(Sensor.N_mod):
             slm[:,:,i]=Sensor.modulate((1080,1920))
-    slm[:,:,0:Sensor.N_os]=np.ones(slm[:,:,0:Sensor.N_os].shape)
+    slm[:,:,0]=np.ones(slm[:,:,0].shape)
     if slm_type =='DMD':
-        SLM = Sensor.process_SLM(slm, N, Nim, delta3, type="amp")
-        SLM[SLM > 0.5] = 1
-        SLM[SLM <= 0.5] = 0
+        SLM = Sensor.process_SLM(slm, N, Sensor.N_mod, delta3, type="amp")
+        SLM[np.abs(SLM) > 0.5] = 1 + 1j*0
+        SLM[SLM <= 0.5] = 0 + 1j*0
         fig = plt.figure(1)
         ax1 = fig.add_subplot(121)
         ax2 = fig.add_subplot(122)
-        ax1.imshow(SLM[:, :, 1], vmin=0, vmax=1)
+        ax1.imshow(np.abs(SLM[:, :, Sensor.N_os]), vmin=0, vmax=1)
         ax2.imshow(np.abs(u30), vmin=0, vmax=1)
         plt.show()
     elif slm_type == 'SLM':
-        SLM = Sensor.process_SLM(slm, N, Nim, delta3, type="phi")
+        SLM = Sensor.process_SLM(slm, N, Sensor.N_mod, delta3, type="phi")
         fig = plt.figure(1)
         ax1 = fig.add_subplot(121)
         ax2 = fig.add_subplot(122)
-        ax1.imshow(np.angle(SLM[:,:,1]), vmin=-np.pi, vmax = np.pi)
+        ax1.imshow(np.angle(SLM[:,:,Sensor.N_os]), vmin=-np.pi, vmax = np.pi)
         ax2.imshow(np.abs(u30), vmin=0, vmax=1)
         plt.show()
-    ims = Sensor.gen_ims(u30, SLM, z3, delta3, Nim, noise)
+    ims = Sensor.gen_ims(u30, SLM, z3, delta3, Sensor.N_mod, Sensor.N_os, noise)
 
     print('\nCaptured images are simulated')
     #reconstruction
     #process the captured image : converting to amplitude and padding if needed
     y0 = Sensor.process_ims(ims, N)
-    plt.imshow(y0[:,:,1], vmin=0, vmax=1)
+    plt.imshow(y0[:,:,Sensor.N_os], vmin=0, vmax=1)
     plt.show()
     ##Recon initilization
     N_os = Sensor.N_os # number of images per batch
-    if Nim < N_os:
-        N_os = Nim
     N_iter = Sensor.N_gs  # number of GS iterations
-    N_batch = int(Nim / N_os)  # number of batches
+    N_batch = Sensor.N_mod  # number of batches
     u3_est, u4_est, idx_converge = Sensor.WISHrun(y0, SLM, delta3, delta4, N_os, N_iter, N_batch, plot=False)
     #phase_rms =(1/N)*min([np.linalg.norm((np.angle(u40)-np.angle(np.exp(1j*th)*u4_est))*(np.abs(u40)>0)) \
-    phase_rms =(1/N)*np.linalg.norm((np.angle(u40)-np.angle(u4_est))*(np.abs(u40)>0))
+    phase_rms = cp.corrcoef(cp.ravel(cp.angle(cp.asarray(u40))), cp.ravel(cp.angle(u4_est)))[0,1]
+    u3_est = cp.asnumpy(u3_est)
+    u4_est = cp.asnumpy(u4_est)
     #phase_rms =(1/N)*np.linalg.norm((np.angle(u30)-np.angle(u3_est))*(np.abs(u30)>0))
-    print(f"\n Phase RMS is : {phase_rms}")
+    print(f"\n Phase correlation coefficient is : {phase_rms}")
     #total time
     T= time.time()-T0
     print(f"\n Total time elapsed : {T} s")
