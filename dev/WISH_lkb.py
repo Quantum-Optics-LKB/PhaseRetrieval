@@ -10,12 +10,14 @@ import matplotlib.pyplot as plt
 from PIL import Image
 from time import time
 from mpl_toolkits.axes_grid1 import make_axes_locatable
+from mpl_toolkits.mplot3d import Axes3D
 import time
 import sys
 import configparser
 import cupy as cp
 import cupyx.scipy.fft as fftpack
 from cupyx.scipy.ndimage import zoom
+from scipy.optimize import minimize
 #from WISH import WISH_Sensor
 
 
@@ -111,6 +113,7 @@ class WISH_Sensor:
         """
         # generate (N/10)x(N/10) random matrices that will then be upscaled through interpolation
         h, w = int(shape[0] / pxsize), int(shape[1] / pxsize)
+        cp.random.seed(1)
         M = cp.random.rand(h, w)  # random matrix between [-1 , 1]
         phi_m = cp.asnumpy(zoom(M, shape[0]/M.shape[0]))
         return phi_m
@@ -123,6 +126,7 @@ class WISH_Sensor:
         """
         # generate (N/10)x(N/10) random matrices that will then be upscaled through interpolation
         h, w = int(shape[0] / pxsize), int(shape[1] / pxsize)
+        cp.random.seed(1)
         M = cp.random.choice(cp.asarray([0,1]), (h,w))   # random intensity mask
         #phi_m = np.kron(M, np.ones((10, 10)))
         phi_m = cp.asnumpy(zoom(M, shape[0]/M.shape[0]))
@@ -390,7 +394,6 @@ class WISH_Sensor:
         ## Recon run : GS loop
         idx_converge = np.empty(N_iter)
         for jj in range(N_iter):
-            sys.stdout.write(f"\rGS iteration {jj+1}")
             sys.stdout.flush()
             u3_collect = cp.zeros(u3.shape, dtype=cp.complex64)
             idx_converge0 = np.empty(N_batch)
@@ -407,11 +410,13 @@ class WISH_Sensor:
                     u3_batch[:,:,_] = self.frt_gpu_s(y[:,:,_], delta4, self.wavelength, -z3) * cp.conj(SLM_batch)
                 u3_collect = u3_collect + cp.mean(u3_batch, 2) # collect(add) U3 from each batch
                 # convergence index matrix for each batch
-                idx_converge0[idx_batch] = (1/N)*cp.linalg.norm((cp.abs(u4)-(1/N**2)*cp.sum(cp.abs(SLM_batch))*
+                idx_converge0[idx_batch] = (1/N)*\
+                                           cp.linalg.norm((cp.abs(u4)-(1/N**2)*cp.sum(cp.abs(SLM_batch))*
                                                                  y0_batch)*(y0_batch>0)) #eventual mask absorption
 
             u3 = (u3_collect / N_batch) # average over batches
             idx_converge[jj] = np.mean(idx_converge0) # sum over batches
+            sys.stdout.write(f"\rGS iteration {jj + 1}")
             sys.stdout.write(f"  (convergence index : {idx_converge[jj]})")
 
 
@@ -464,12 +469,12 @@ def main():
     #I0 = np.array(Image.open('intensities/harambe_512_full.bmp'))[:,:,0]
     #I0 = I0.astype(float)/256
     #I0 = np.pad(I0.astype(np.float) / 256, (256, 256))  # protection band
-    im = np.array(Image.open('intensities/I0_1024_full.bmp'))[:,:,0]
-    phi0 = np.array(Image.open('phases/calib_1024_full.bmp'))
+    im = np.array(Image.open('intensities/I0_256_full.bmp'))[:,:,0]
+    phi0 = np.array(Image.open('phases/smiley_256.bmp'))[:,:,0]
     im = cp.asnumpy(zoom(cp.asarray(im), 1))
     phi0 = cp.asnumpy(zoom(cp.asarray(phi0), 1))
-    u40 = np.pad(im.astype(np.float)/256, (128,128)) #protection band
-    phi0 = np.pad(phi0.astype(np.float)/256, (128,128)) #protection band
+    u40 = np.pad(im.astype(np.float)/256, (256, 256)) #protection band
+    phi0 = np.pad(phi0.astype(np.float)/256, (256,256)) #protection band
     u40 = u40 * (np.exp(1j * phi0 * 2 * np.pi))
     u40=u40.astype(np.complex64)
     N = u40.shape[0]
@@ -480,9 +485,10 @@ def main():
     noise = Sensor.noise
     slm = np.zeros((1080, 1920,Sensor.N_mod))
     slm_type = 'DMD'
+
     if slm_type=='DMD':
         for i in range(int(Sensor.N_mod/2)):
-            slm[:, :, 2 * i] = Sensor.modulate_binary((1080, 1920), pxsize=1)
+            slm[:, :, 2 * i] = Sensor.modulate_binary((1080, 1920), pxsize=10)
             slm[:, :, 2 * i + 1] = np.ones((1080, 1920)) - slm[:, :, 2 * i]
     elif slm_type=='SLM':
         for i in range(Sensor.N_mod):
@@ -521,12 +527,18 @@ def main():
     T_run_0=time.time()
     u3_est, u4_est, idx_converge = Sensor.WISHrun(y0, SLM, delta3, delta4, N_os, N_iter, N_batch, plot=False)
     T_run=time.time()-T_run_0
-    #phase_rms =(1/N)*min([np.linalg.norm((np.angle(u40)-np.angle(np.exp(1j*th)*u4_est))*(np.abs(u40)>0)) \
-    phase_rms = cp.corrcoef(cp.ravel(cp.angle(cp.asarray(u40))), cp.ravel(cp.angle(u4_est)))[0,1]
+    #phase_rms = cp.corrcoef(cp.ravel(cp.angle(cp.asarray(u40))), cp.ravel(cp.angle(u4_est)))[0,1]
     u3_est = cp.asnumpy(u3_est)
     u4_est = cp.asnumpy(u4_est)
+    phase_RMS =(1/N) * np.array(
+        [np.linalg.norm((np.angle(u40)-np.angle(np.exp(1j*th)*u4_est))*(np.abs(u40) > 0)) for th in
+         np.linspace(-np.pi, np.pi, 256)])
+    phase_rms = np.min(phase_RMS)
     #phase_rms =(1/N)*np.linalg.norm((np.angle(u30)-np.angle(u3_est))*(np.abs(u30)>0))
-    print(f"\n Phase correlation coefficient is : {phase_rms}")
+    plt.figure()
+    plt.plot(phase_RMS, color='red', marker='o')
+    plt.show()
+    print(f"\n Phase RMS is : {phase_rms}")
     #total time
     T= time.time()-T0
     print(f"\n Time spent in the GS loop : {T_run} s")
@@ -547,11 +559,11 @@ def main():
     cax4 = divider4.append_axes('right', size='5%', pad=0.05)
     im1=ax1.imshow(np.abs(u40), cmap='viridis', vmin=0, vmax=1)
     ax1.set_title('Amplitude GT')
-    im2=ax2.imshow(np.angle(u40), cmap='viridis',vmin=-np.pi, vmax=np.pi)
+    im2=ax2.imshow(np.angle(u40), cmap='twilight_shifted',vmin=-np.pi, vmax=np.pi)
     ax2.set_title('Phase GT')
     im3=ax3.imshow(abs(u4_est), cmap='viridis', vmin=0, vmax=1)
     ax3.set_title('Amplitude estimation')
-    im4=ax4.imshow(np.angle(u4_est), cmap='viridis', vmin=-np.pi, vmax=np.pi)
+    im4=ax4.imshow(np.angle(u4_est), cmap='twilight_shifted', vmin=-np.pi, vmax=np.pi)
     ax4.set_title('Phase estimation')
     ax5.plot(np.arange(0, len(idx_converge),1), idx_converge)
     ax5.set_title("Convergence curve")
