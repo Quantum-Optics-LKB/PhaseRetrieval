@@ -341,6 +341,8 @@ class WISH_Sensor:
         :param N: Size of the sensor
         :return y0 : Processed field of size (N,N, Nim)
         """
+        if ims.dtype!=float:
+            ims=(ims/256).astype(float)
         y0 = np.real(np.sqrt(ims)); # change from intensity to magnitude
         y0 = np.pad(y0, (round((N - y0.shape[0]) / 2), round((N - y0.shape[1]) / 2)))
         if y0.shape[0] > N:
@@ -439,7 +441,7 @@ class WISH_Sensor:
 
             # exit if the matrix doesn 't change much
             if jj > 1:
-                if cp.abs(idx_converge[jj] - idx_converge[jj - 1]) / idx_converge[jj] < 1e-4:
+                if cp.abs(idx_converge[jj] - idx_converge[jj - 1]) / idx_converge[jj] < 1e-5:
                 #if cp.abs(idx_converge[jj]) < 5e-3:
                 #if idx_converge[jj]>idx_converge[jj-1]:
                     print('\nConverged. Exit the GS loop ...')
