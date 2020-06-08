@@ -1,5 +1,9 @@
 # -*- coding: utf-8 -*-
 """
+Created by Tangui Aladjidi at 08/06/2020
+"""
+# -*- coding: utf-8 -*-
+"""
 Created by Tangui Aladjidi at 28/05/2020
 """
 
@@ -14,21 +18,9 @@ import configparser
 import cupy as cp
 from scipy.ndimage import zoom
 from WISH_lkb import WISH_Sensor
-import slmpy
-import cv2
-import EasyPySpin
 
 #WISH routine
-def alignment(frame):
-    frame_blurred = cv2.blur(frame, (12, 12))
-    ret1, thresh = cv2.threshold(frame, 70, 255, 0)
-    thresh_blurred = cv2.blur(thresh, (12, 12))
-    M = cv2.moments(thresh_blurred)
-    cX = int(M["m10"] / M["m00"])
-    cY = int(M["m01"] / M["m00"])
-    T = np.float32([[1, 0, int(frame.shape[1]/2) - cX], [0, 1, int(frame.shape[0]/2) - cY]])
-    frame_s = cv2.warpAffine(frame, T, frame.shape)
-    return frame_s
+
 def main():
     #start timer
     T0 = time.time()
@@ -37,17 +29,16 @@ def main():
     wvl = Sensor.wavelength
     z3 = Sensor.z
     delta4 = Sensor.d_CAM
-    '''
     #I0 = np.array(Image.open('intensities/harambe_512_full.bmp'))[:,:,0]
     #I0 = I0.astype(float)/256
     #I0 = np.pad(I0.astype(np.float) / 256, (256, 256))  # protection band
-    im = np.array(Image.open('intensities/I0_256_full.bmp'))[:,:,0]
+    im = np.array(Image.open('intensities/harambe_256_full.bmp'))[:,:,0]
     phi0 = np.array(Image.open('phases/smiley_256.bmp'))[:,:,0]
-    im = cp.asnumpy(zoom(cp.asarray(im), 2))
-    phi0 = cp.asnumpy(zoom(cp.asarray(phi0), 2))
-    u40 = np.pad(im.astype(np.float)/256, (768, 768)) #protection band
+    im = cp.asnumpy(zoom(cp.asarray(im), 1))
+    phi0 = cp.asnumpy(zoom(cp.asarray(phi0), 1))
+    u40 = np.pad(im.astype(np.float)/256, (64, 64)) #protection band
     u40 = Sensor.gaussian_profile(u40, 0.5)
-    phi0 = np.pad(phi0.astype(np.float)/256, (768,768)) #protection band
+    phi0 = np.pad(phi0.astype(np.float)/256, (64,64)) #protection band
     u40 = u40 * (np.exp(1j * phi0 * 2 * np.pi))
     u40=u40.astype(np.complex64)
     N = u40.shape[0]
@@ -56,73 +47,36 @@ def main():
     ## forward prop to the sensor plane with SLM modulation
     print('Generating simulation data images ...')
     noise = Sensor.noise
-    '''
     slm = np.zeros((1080, 1920,Sensor.N_mod))
     slm_type = 'SLM'
-    #Setting up the camera for acquisition
-    Cam = EasyPySpin.VideoCapture(0) #by default camera 0 is the laptop webcam
-
-    N = int(Cam.get(cv2.CAP_PROP_FRAME_WIDTH)*1)
-    delta3 = wvl * z3 / (N * delta4)
-    ims = np.zeros((N,N,Sensor.Nim))
     if slm_type=='DMD':
         slm = np.ones((1080, 1920, Sensor.N_mod))
-        slm_display = slmpy.SLMdisplay()
-        slm_display.updateArray(slm[:, :, 0])
-        print(f"Displaying 1 st SLM pattern")
-        for obs in range(Sensor.N_os):
-            ret, frame = Cam.read()
-            frame = alignment(frame)
-            ims[:, :, obs] = zoom(cv2.flip(frame, 0), 0.5)
         for i in range(1,int(Sensor.N_mod/2)):
             slm[:, :, 2 * i] = Sensor.modulate_binary((1080, 1920), pxsize=1)
-            for obs in range(Sensor.N_os):
-                ret, frame = Cam.read()
-                frame = alignment(frame)
-                ims[:,:,2 * i+obs]= zoom(cv2.flip(frame, 0), 0.5)
             slm[:, :, 2 * i + 1] = np.ones((1080, 1920)) - slm[:, :, 2 * i]
-            for obs in range(Sensor.N_os):
-                ret, frame = Cam.read()
-                frame = alignment(frame)
-                ims[:,:,2 * i + 1 + obs]= zoom(cv2.flip(frame, 0), 0.5)
     elif slm_type=='SLM':
         slm = np.ones((1024, 1280, Sensor.N_mod))
-        slm_display = slmpy.SLMdisplay()
-        slm_display.updateArray(slm[:, :, 0])
-        print(f"Displaying 1 st SLM pattern")
-        for obs in range(Sensor.N_os):
-            ret, frame = Cam.read()
-            frame = alignment(frame)
-            ims[:, :, obs] = zoom(cv2.flip(frame, 0), 1)
         for i in range(1,Sensor.N_mod):
             slm[:,:,i]=Sensor.modulate((1024,1280), pxsize=1)
-            slm_display.updateArray(slm[:,:,i])
-            for obs in range(Sensor.N_os):
-                ret, frame = Cam.read()
-                frame = alignment(frame)
-                ims[:,:,i+obs]= zoom(cv2.flip(frame, 0), 1)
-            print(f"Displaying {i+1} th SLM pattern")
-        slm_display.close()
-        Cam.release()
     if slm_type =='DMD':
         SLM = Sensor.process_SLM(slm, N, delta3, type="amp")
         SLM[np.abs(SLM) > 0.5] = 1 + 1j*0
         SLM[SLM <= 0.5] = 0 + 1j*0
-        #fig = plt.figure(1)
-        #ax1 = fig.add_subplot(121)
-        #ax2 = fig.add_subplot(122)
-        #ax1.imshow(np.abs(SLM[:, :, Sensor.N_os]), vmin=0, vmax=1)
-        #ax2.imshow(np.abs(u30), vmin=0, vmax=1)
-        #plt.show()
+        fig = plt.figure(1)
+        ax1 = fig.add_subplot(121)
+        ax2 = fig.add_subplot(122)
+        ax1.imshow(np.abs(SLM[:, :, Sensor.N_os]), vmin=0, vmax=1)
+        ax2.imshow(np.abs(u30), vmin=0, vmax=1)
+        plt.show()
     elif slm_type == 'SLM':
         SLM = Sensor.process_SLM(slm, N, delta3, type="phi")
-        #fig = plt.figure(1)
-        #ax1 = fig.add_subplot(121)
-        #ax2 = fig.add_subplot(122)
-        #ax1.imshow(np.angle(SLM[:,:,Sensor.N_os]), vmin=-np.pi, vmax = np.pi)
-        #ax2.imshow(np.abs(u30), vmin=0, vmax=1)
-        #plt.show()
-    #ims = Sensor.gen_ims(u30, SLM, z3, delta3, noise)
+        fig = plt.figure(1)
+        ax1 = fig.add_subplot(121)
+        ax2 = fig.add_subplot(122)
+        ax1.imshow(np.angle(SLM[:,:,Sensor.N_os]), vmin=-np.pi, vmax = np.pi)
+        ax2.imshow(np.abs(u30), vmin=0, vmax=1)
+        plt.show()
+    ims = Sensor.gen_ims(u30, SLM, z3, delta3, noise)
 
     print('\nCaptured images are simulated')
     #reconstruction

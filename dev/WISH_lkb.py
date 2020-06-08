@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
 @author : Tangui ALADJIDI
-After the Matlab code from Yicheng WU
+Update of the Matlab code from Yicheng WU
 """
 
 
