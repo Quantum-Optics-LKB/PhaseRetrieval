@@ -7,7 +7,6 @@ Update of the Matlab code from Yicheng WU
 
 import numpy as np
 import matplotlib.pyplot as plt
-from PIL import Image
 from time import time
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 import time
@@ -441,7 +440,7 @@ class WISH_Sensor:
 
             # exit if the matrix doesn 't change much
             if jj > 1:
-                if cp.abs(idx_converge[jj] - idx_converge[jj - 1]) / idx_converge[jj] < 1e-5:
+                if cp.abs(idx_converge[jj] - idx_converge[jj - 1]) / idx_converge[jj] < 1e-4:
                 #if cp.abs(idx_converge[jj]) < 5e-3:
                 #if idx_converge[jj]>idx_converge[jj-1]:
                     print('\nConverged. Exit the GS loop ...')
@@ -532,8 +531,8 @@ class WISH_Sensor:
 
             # exit if the matrix doesn 't change much
             if jj > 1:
-                if cp.abs(idx_converge[jj] - idx_converge[jj - 1]) / idx_converge[jj] < 1e-4:
-                    # if cp.abs(idx_converge[jj]) < 5e-3:
+                #if cp.abs(idx_converge[jj] - idx_converge[jj - 1]) / idx_converge[jj] < 1e-4:
+                if cp.abs(idx_converge[jj]) < 5e-6:
                     # if idx_converge[jj]>idx_converge[jj-1]:
                     print('\nConverged. Exit the GS loop ...')
                     # idx_converge = idx_converge[0:jj]
