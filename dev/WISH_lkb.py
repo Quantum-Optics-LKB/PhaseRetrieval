@@ -320,14 +320,14 @@ class WISH_Sensor:
 
         if slm.dtype=='uint8':
             slm = slm.astype(float)/256
-        ims = np.zeros((N, N, Nim), dtype=float)
+        ims = np.zeros((N, N, Nim), dtype=np.float32)
         for i in range(Nim):
             sys.stdout.write(f"\rGenerating image {i+1} out of {Nim} ...")
             sys.stdout.flush()
             a31 = u3 * A_SLM * slm[:,:,i//N_os]
             a31 = cp.asarray(a31)  #put the field in the GPU
             a4 = self.frt_gpu(a31, delta3, self.wavelength, z3)
-            w = noise * cp.random.rand(N, N)
+            w = noise * cp.random.standard_normal((N, N,), dtype=float)
             ya = cp.abs(a4)**2 + w
             ya[ya<0]=0
             ims[:,:, i] = cp.asnumpy(ya)
@@ -340,7 +340,7 @@ class WISH_Sensor:
         :param N: Size of the sensor
         :return y0 : Processed field of size (N,N, Nim)
         """
-        if ims.dtype!=float:
+        if ims.dtype=='uint8':
             ims=(ims/256).astype(float)
         y0 = np.real(np.sqrt(ims)); # change from intensity to magnitude
         y0 = np.pad(y0, (round((N - y0.shape[0]) / 2), round((N - y0.shape[1]) / 2)))

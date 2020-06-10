@@ -34,9 +34,10 @@ def main():
     phi0 = np.array(Image.open('phases/smiley_256.bmp'))[:,:,0]
     im = cp.asnumpy(zoom(cp.asarray(im), 1))
     phi0 = cp.asnumpy(zoom(cp.asarray(phi0), 1))
-    u40 = np.pad(im.astype(np.float)/256, (64, 64)) #protection band
+    padding=64
+    u40 = np.pad(im.astype(np.float)/256, (padding, padding)) #protection band
     u40 = Sensor.gaussian_profile(u40, 0.5)
-    phi0 = np.pad(phi0.astype(np.float)/256, (64,64)) #protection band
+    phi0 = np.pad(phi0.astype(np.float)/256, (padding,padding)) #protection band
     u40 = u40 * (np.exp(1j * phi0 * 2 * np.pi))
     u40=u40.astype(np.complex64)
     N = u40.shape[0]
@@ -67,7 +68,7 @@ def main():
         cax1 = divider1.append_axes('right', size='5%', pad=0.05)
         divider2 = make_axes_locatable(ax2)
         cax2 = divider2.append_axes('right', size='5%', pad=0.05)
-        im1=ax1.imshow(np.abs(SLM[:, :, Sensor.N_os]), vmin=0, vmax=1)
+        im1=ax1.imshow(np.abs(SLM[:, :, Sensor.N_os+1]), vmin=0, vmax=1)
         ax1.set_title("DMD modulation pattern")
         im2=ax2.imshow(np.abs(u30), vmin=0, vmax=1)
         ax2.set_title("Back propagated field")
@@ -85,7 +86,7 @@ def main():
         cax1 = divider1.append_axes('right', size='5%', pad=0.05)
         divider2 = make_axes_locatable(ax2)
         cax2 = divider2.append_axes('right', size='5%', pad=0.05)
-        im1=ax1.imshow(np.angle(SLM[:,:,Sensor.N_os]), vmin=-np.pi, vmax = np.pi, cmap='twilight')
+        im1=ax1.imshow(np.angle(SLM[:,:,1]), vmin=-np.pi, vmax = np.pi, cmap='twilight')
         im2=ax2.imshow(np.abs(u30), vmin=0, vmax=1)
         ax1.set_title("SLM modulation pattern")
         ax2.set_title("Back-propagated field")
@@ -94,7 +95,7 @@ def main():
         cbar1.set_label("Phase in rad", rotation=270)
         cbar2.set_label("Intensity", rotation=270)
         plt.show()
-    ims = Sensor.gen_ims(u30, SLM, z3, delta3, noise)
+    ims = np.mean(np.asarray([Sensor.gen_ims(u30, SLM, z3, delta3, noise) for _ in range(100)]), axis=0)
     print('\nCaptured images are simulated')
     #reconstruction
     #process the captured image : converting to amplitude and padding if needed
@@ -148,6 +149,7 @@ def main():
     im4=ax4.imshow(np.angle(u4_est), cmap='twilight', vmin=-np.pi, vmax=np.pi)
     ax4.set_title('Phase estimation')
     ax5.plot(np.arange(0, len(idx_converge),1), idx_converge)
+    ax5.set_yscale('log')
     ax5.set_title("Convergence curve")
     ax5.set_xlabel("Iteration")
     ax5.set_ylabel("RMS error of the estimated field")
@@ -159,6 +161,24 @@ def main():
     cbar2.set_label("Phase in rad", rotation=270)
     cbar3.set_label("Intensity", rotation=270)
     cbar4.set_label("Phase in rad", rotation=270)
+    plt.show()
+    #for modulation pixel size run
+    fig=plt.figure()
+    #ax1 = fig.add_subplot(121)
+    ax2 = fig.add_subplot(111)
+    #divider1 = make_axes_locatable(ax1)
+    #cax1 = divider1.append_axes('right', size='5%', pad=0.05)
+    divider2 = make_axes_locatable(ax2)
+    cax2 = divider2.append_axes('right', size='5%', pad=0.05)
+    #im1 = ax1.imshow(np.angle(SLM[:, :, Sensor.N_os-1]), vmin=-np.pi, vmax=np.pi, cmap='twilight')
+    #ax1.set_title("SLM modulation pattern")
+    im2 = ax2.imshow(np.angle(u4_est), cmap='twilight', vmin=-np.pi, vmax=np.pi)
+    ax2.text(8, 18, f"RMS = {'{:.2f}%'.format(100*phase_rms)}", bbox={'facecolor': 'white', 'pad': 4})
+    ax2.set_title('Phase estimation')
+    #cbar1 = fig.colorbar(im1, cax=cax1)
+    cbar2 = fig.colorbar(im2, cax=cax2)
+    #cbar1.set_label("Phase in rad", rotation=270)
+    cbar2.set_label("Phase in rad", rotation=270)
     plt.show()
 if __name__=="__main__":
     main()
