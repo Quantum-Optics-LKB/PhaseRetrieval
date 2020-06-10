@@ -95,7 +95,7 @@ def main():
         cbar1.set_label("Phase in rad", rotation=270)
         cbar2.set_label("Intensity", rotation=270)
         plt.show()
-    ims = np.mean(np.asarray([Sensor.gen_ims(u30, SLM, z3, delta3, noise) for _ in range(100)]), axis=0)
+    ims = Sensor.gen_ims(u30, SLM, z3, delta3, noise)
     print('\nCaptured images are simulated')
     #reconstruction
     #process the captured image : converting to amplitude and padding if needed
