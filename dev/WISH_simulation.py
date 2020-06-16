@@ -49,9 +49,9 @@ def main():
     slm_type = 'SLM'
     if slm_type=='DMD':
         slm = np.ones((1080, 1920, Sensor.N_mod))
-        slm[:,:,1] = Sensor.modulate_binary((1080, 1920), pxsize=1)
+        slm[:,:,1] = Sensor.modulate_binary((1080, 1920), pxsize=2)
         for i in range(1,Sensor.N_mod//2):
-            slm[:, :, 2 * i] = Sensor.modulate_binary((1080, 1920), pxsize=1)
+            slm[:, :, 2 * i] = Sensor.modulate_binary((1080, 1920), pxsize=2)
             slm[:, :, 2 * i + 1] = np.ones((1080, 1920)) - slm[:, :, 2 * i]
     elif slm_type=='SLM':
         slm = np.ones((1024, 1280, Sensor.N_mod))
@@ -117,9 +117,9 @@ def main():
     T_run=time.time()-T_run_0
     u3_est = cp.asnumpy(u3_est)
     u4_est = cp.asnumpy(u4_est)
-    phase_RMS =(1/(2*np.pi*N)) * np.array(
+    phase_RMS =(1/(2*np.pi*(N-2*padding))) * np.array(
         [np.linalg.norm((np.angle(u40)-np.angle(np.exp(1j*th)*u4_est))*(np.abs(u40) > 0)) for th in
-         np.linspace(-np.pi, np.pi, 256)])
+         np.linspace(-np.pi, np.pi, 512)])
     phase_rms = np.min(phase_RMS)
     print(f"\n Phase RMS is : {phase_rms}")
     #total time
@@ -144,9 +144,10 @@ def main():
     ax1.set_title('Initial amplitude')
     im2=ax2.imshow(np.angle(u40), cmap='twilight',vmin=-np.pi, vmax=np.pi)
     ax2.set_title('Initial phase')
-    im3=ax3.imshow(abs(u4_est)**2, cmap='viridis', vmin=0, vmax=1)
+    im3=ax3.imshow(np.abs(u4_est), cmap='viridis', vmin=0, vmax=1)
     ax3.set_title('Amplitude estimation')
     im4=ax4.imshow(np.angle(u4_est), cmap='twilight', vmin=-np.pi, vmax=np.pi)
+    ax4.text(8, 18, f"RMS = {'{:.3f}%'.format(100 * phase_rms)}", bbox={'facecolor': 'white', 'pad': 4})
     ax4.set_title('Phase estimation')
     ax5.plot(np.arange(0, len(idx_converge),1), idx_converge)
     ax5.set_yscale('log')
@@ -170,10 +171,10 @@ def main():
     #cax1 = divider1.append_axes('right', size='5%', pad=0.05)
     divider2 = make_axes_locatable(ax2)
     cax2 = divider2.append_axes('right', size='5%', pad=0.05)
-    #im1 = ax1.imshow(np.angle(SLM[:, :, Sensor.N_os-1]), vmin=-np.pi, vmax=np.pi, cmap='twilight')
-    #ax1.set_title("SLM modulation pattern")
+    #im1 = ax1.imshow(np.abs(SLM[:, :, Sensor.N_os]), vmin=0, vmax=1, cmap='gray')
+    #ax1.set_title("DMD modulation pattern")
     im2 = ax2.imshow(np.angle(u4_est), cmap='twilight', vmin=-np.pi, vmax=np.pi)
-    ax2.text(8, 18, f"RMS = {'{:.2f}%'.format(100*phase_rms)}", bbox={'facecolor': 'white', 'pad': 4})
+    ax2.text(8, 18, f"RMS = {'{:.3f}%'.format(100*phase_rms)}", bbox={'facecolor': 'white', 'pad': 4})
     ax2.set_title('Phase estimation')
     #cbar1 = fig.colorbar(im1, cax=cax1)
     cbar2 = fig.colorbar(im2, cax=cax2)
