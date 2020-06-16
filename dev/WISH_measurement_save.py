@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-Created by Tangui Aladjidi at 28/05/2020
+Created by Tangui Aladjidi at 16/06/2020
 """
 
 import numpy as np
@@ -94,44 +94,12 @@ def main():
     elif slm_type == 'SLM':
         SLM = Sensor.process_SLM(slm, N, delta3, type="phi")
 
-    print('\nCaptured images are simulated')
+    print('\nImages are measured')
     #reconstruction
     #process the captured image : converting to amplitude and padding if needed
     ims=(ims/256).astype(np.float)
-    print('\nDisplaying captured images')
     y0 = Sensor.process_ims(ims, N)
-    #for k in range(y0.shape[2]):
-    plt.imshow(y0[:,:,1], vmin=0, vmax=1)
-    plt.scatter(N/2,N/2, color='r', marker='.')
-    ##Recon initilization
-    T_run_0=time.time()
-    u3_est, u4_est, idx_converge = Sensor.WISHrun(y0, SLM, delta3, delta4, plot=False)
-    T_run=time.time()-T_run_0
-    u3_est = cp.asnumpy(u3_est)
-    u4_est = cp.asnumpy(u4_est)
-    #total time
-    T= time.time()-T0
-    print(f"\n Time spent in the GS loop : {T_run} s")
-    print(f"\n Total time elapsed : {T} s")
-    fig=plt.figure()
-    ax3 = fig.add_subplot(131)
-    ax4 = fig.add_subplot(132)
-    ax5 = fig.add_subplot(133)
-    divider3 = make_axes_locatable(ax3)
-    cax3 = divider3.append_axes('right', size='5%', pad=0.05)
-    divider4 = make_axes_locatable(ax4)
-    cax4 = divider4.append_axes('right', size='5%', pad=0.05)
-    im3=ax3.imshow(abs(u4_est)**2, cmap='viridis', vmin=0, vmax=1)
-    ax3.set_title('intensity estimation (SLM plane)')
-    im4=ax4.imshow(np.angle(u4_est), cmap='twilight_shifted', vmin=-np.pi, vmax=np.pi)
-    ax4.set_title('Phase estimation')
-    ax5.plot(np.arange(0, len(idx_converge),1), idx_converge)
-    ax5.set_title("Convergence curve")
-    ax5.set_xlabel("Iteration")
-    ax5.set_ylabel("RMS error of the estimated field")
-    ax5.set_yscale('log')
-    fig.colorbar(im3, cax=cax3)
-    fig.colorbar(im4, cax=cax4)
-    plt.show()
+    np.save('measurements/SLM.npy', SLM)
+    np.save('measurements/y0.npy', y0)
 if __name__=="__main__":
     main()

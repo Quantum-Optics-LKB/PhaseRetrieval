@@ -42,4 +42,7 @@ class SLMscreen:
         Closes the SLM window
         :return:
         """
+        #reset default matplotlib params
+        mpl.rcParams['toolbar'] = 'toolbar2'
+        mpl.rcParams['savefig.pad_inches'] = 0
         plt.close(self.fig)

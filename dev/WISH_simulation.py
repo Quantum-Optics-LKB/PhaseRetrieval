@@ -31,7 +31,7 @@ def main():
     #I0 = I0.astype(float)/256
     #I0 = np.pad(I0.astype(np.float) / 256, (256, 256))  # protection band
     im = np.array(Image.open('intensities/I0_256_full.bmp'))[:,:,0]
-    phi0 = np.array(Image.open('phases/smiley_256.bmp'))[:,:,0]
+    phi0 = np.array(Image.open('phases/harambe_256_full.bmp'))[:,:,0]
     im = cp.asnumpy(zoom(cp.asarray(im), 1))
     phi0 = cp.asnumpy(zoom(cp.asarray(phi0), 1))
     padding=64

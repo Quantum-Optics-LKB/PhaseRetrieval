@@ -110,7 +110,6 @@ class WISH_Sensor:
         """
         # generate (N/10)x(N/10) random matrices that will then be upscaled through interpolation
         h, w = int(shape[0] / pxsize), int(shape[1] / pxsize)
-        cp.random.seed(1)
         M = cp.random.rand(h, w)  # random matrix between [-1 , 1]
         phi_m = cp.asnumpy(zoom(M, (shape[0]/M.shape[0], shape[1]/M.shape[1])))
         return phi_m
@@ -123,7 +122,6 @@ class WISH_Sensor:
         """
         # generate (N/10)x(N/10) random matrices that will then be upscaled through interpolation
         h, w = int(shape[0] / pxsize), int(shape[1] / pxsize)
-        cp.random.seed(1)
         M = cp.random.choice(cp.asarray([0,1]), (h,w))   # random intensity mask
         #phi_m = np.kron(M, np.ones((10, 10)))
         phi_m = cp.asnumpy(zoom(M, shape[0]/M.shape[0]))
@@ -395,19 +393,19 @@ class WISH_Sensor:
             idx_converge0 = np.empty(N_batch)
             for idx_batch in range(N_batch):
                 # put the correct batch into the GPU
-                SLM_batch = SLM[:,:, idx_batch]
+                #SLM_batch = SLM[:,:, idx_batch]
                 y0_batch = y0[:,:, int(N_os * idx_batch): int(N_os * (idx_batch+1))]
                 for _ in range(N_os):
-                    u4[:,:,_] = self.frt_gpu_s(u3 * SLM_batch, delta3, self.wavelength, z3) # U4 is the field on the sensor
+                    u4[:,:,_] = self.frt_gpu_s(u3 * SLM[:,:, idx_batch], delta3, self.wavelength, z3) # U4 is the field on the sensor
                     y[:,:,_] = y0_batch[:,:,_] * cp.exp(1j * cp.angle(u4[:,:,_])) #impose the amplitude
                     #[:,:,_] = u4[:,:,_]
                     #y[i_mask:j_mask,i_mask:j_mask,_] = y0_batch[i_mask:j_mask,i_mask:j_mask,_] \
                     #                                   * cp.exp(1j * cp.angle(u4[i_mask:j_mask,i_mask:j_mask,_]))
-                    u3_batch[:,:,_] = self.frt_gpu_s(y[:,:,_], delta4, self.wavelength, -z3) * cp.conj(SLM_batch)
+                    u3_batch[:,:,_] = self.frt_gpu_s(y[:,:,_], delta4, self.wavelength, -z3) * cp.conj(SLM[:,:, idx_batch])
                 u3_collect = u3_collect + cp.mean(u3_batch, 2) # collect(add) U3 from each batch
                 # convergence index matrix for each batch
                 idx_converge0[idx_batch] = (1/N)*\
-                                           cp.linalg.norm((cp.abs(u4)-(1/N**2)*cp.sum(cp.abs(SLM_batch))*
+                                           cp.linalg.norm((cp.abs(u4)-(1/N**2)*cp.sum(cp.abs(SLM[:,:, idx_batch]))*
                                                                  y0_batch)*(y0_batch>0)) #eventual mask absorption
 
             u3 = (u3_collect / N_batch) # average over batches
