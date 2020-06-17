@@ -14,6 +14,7 @@ import sys
 import configparser
 import cupy as cp
 from cupyx.scipy.ndimage import zoom
+from cupyx.scipy import fftpack
 
 
 
@@ -197,8 +198,39 @@ class WISH_Sensor:
             A =D * Q2 * ((N*d1) ** 2) * cp.fft.fftshift(cp.fft.ifft2(cp.fft.ifftshift(A0 * Q1, axes=(0,1)), axes=(0,1)), axes=(0,1))
 
         return A
+
     @staticmethod
-    def frt_gpu_s(A0: np.ndarray, d1: float, wv: float, z: float, plan = None):
+    def frt_gpu_vec(A0: np.ndarray, d1: float, wv: float, z: float):
+        """
+        Implements propagation using Fresnel diffraction. Runs on a GPU using CuPy with a CUDA backend.
+        :param A0: Field to propagate
+        :param d1: Sampling size of the field A0
+        :param wv: Wavelength in m
+        :param z : Propagation distance in metres
+        :return: A : Propagated field
+        """
+        k = 2 * np.pi / wv
+        N = A0.shape[1]
+        x = cp.linspace(0, N - 1, N) - (N / 2) * cp.ones(N)
+        y = cp.linspace(0, N - 1, N) - (N / 2) * cp.ones(N)
+        d2 = wv * z / (N * d1)
+        X1, Y1 = d1 * cp.meshgrid(x, y)[0], d1 * cp.meshgrid(x, y)[1]
+        X2, Y2 = d2 * cp.meshgrid(x, y)[0], d2 * cp.meshgrid(x, y)[1]
+        R1 = cp.sqrt(X1 ** 2 + Y1 ** 2)
+        R2 = cp.sqrt(X2 ** 2 + Y2 ** 2)
+        D = 1 / (1j * wv * abs(z))
+        Q1 = cp.exp(1j * (k / (2 * z)) * R1 ** 2)
+        Q2 = cp.exp(1j * (k / (2 * z)) * R2 ** 2)
+        if z >= 0:
+            A = D * Q2 * (d1 ** 2) * cp.fft.fftshift(cp.fft.fft2(cp.fft.ifftshift(A0 * Q1, axes=(1, 2)), axes=(1, 2)),
+                                                     axes=(1, 2))
+        elif z < 0:
+            A = D * Q2 * ((N * d1) ** 2) * cp.fft.fftshift(
+                cp.fft.ifft2(cp.fft.ifftshift(A0 * Q1, axes=(1, 2)), axes=(1, 2)), axes=(1, 2))
+
+        return A
+    @staticmethod
+    def frt_gpu_s(A0: np.ndarray, d1: float, wv: float, z: float):
         """
         Simplified Fresnel propagation optimized for GPU computing. Runs on a GPU using CuPy with a CUDA backend.
         :param A0: Field to propagate
@@ -213,6 +245,39 @@ class WISH_Sensor:
             A =cp.multiply(D*(d1**2), cp.fft.fftshift(cp.fft.fft2(cp.fft.ifftshift(A0, axes=(0,1)), axes=(0,1)), axes=(0,1)))
         elif z<0:
             A =cp.multiply(D * ((N*d1) ** 2), cp.fft.fftshift(cp.fft.ifft2(cp.fft.ifftshift(A0, axes=(0,1)), axes=(0,1)), axes=(0,1)))
+
+        return A
+
+    @staticmethod
+    def frt_gpu_vec_s(A0: np.ndarray, d1: float, wv: float, z: float, plan=None):
+        """
+        Simplified Fresnel propagation optimized for GPU computing. Runs on a GPU using CuPy with a CUDA backend.
+        :param A0: Field to propagate
+        :param d1: Sampling size of the field A0
+        :param wv: Wavelength in m
+        :param z : Propagation distance in metres
+        :return: A : Propagated field
+        """
+        N = A0.shape[1]
+        D = 1 / (1j * wv * abs(z))
+        if z >= 0:
+            if plan==None:
+                A = cp.multiply(D * (d1 ** 2),
+                            cp.fft.fftshift(cp.fft.fft2(cp.fft.ifftshift(A0, axes=(1, 2)), axes=(1, 2)), axes=(1, 2)))
+            else :
+                with plan:
+                    A = cp.multiply(D * (d1 ** 2),
+                                cp.fft.fftshift(cp.fft.fft2(cp.fft.ifftshift(A0, axes=(1, 2)), axes=(1, 2)),
+                                                axes=(1, 2)))
+        elif z < 0:
+            if plan==None:
+                A = cp.multiply(D * ((N * d1) ** 2),
+                            cp.fft.fftshift(cp.fft.ifft2(cp.fft.ifftshift(A0, axes=(1, 2)), axes=(1, 2)), axes=(1, 2)))
+            else :
+                with plan:
+                    A = cp.multiply(D * ((N * d1) ** 2),
+                                cp.fft.fftshift(cp.fft.ifft2(cp.fft.ifftshift(A0, axes=(1, 2)), axes=(1, 2)),
+                                                axes=(1, 2)))
 
         return A
     def u4Tou3(self, u4: np.ndarray, delta4: float, z3: float):
@@ -231,7 +296,6 @@ class WISH_Sensor:
         apparent size of the SLM in the sensor field of view.
         :param slm: Input SLM patterns
         :param N: Size of the calculation (typically the sensor number of pixels)
-        :param N_batch: Number of images to generate
         :param delta3: Sampling size of the SLM plane (typically the "apparent" sampling size wvl*z/N*d_Sensor )
         :param type : "amp" / "phi" amplitude or phase pattern.
         :return SLM: Rescaled and properly shaped SLM patterns of size (N,N,N_batch)
@@ -301,7 +365,6 @@ class WISH_Sensor:
         :param slm : Pre generated slm patterns
         :param z3: Propagation distance in metres
         :param delta3: "apparent" sampling size of the SLM plane (as seen by the image plane from z3 m away)
-        :param Nim: Number of images to generate
         :param noise: Intensity of the gaussian noise added to the images
         :return ims: Generated signal in the sensor plane of size (N,N,Nim)
         """
@@ -345,19 +408,15 @@ class WISH_Sensor:
         if y0.shape[0] > N:
             y0=y0[0:N,0:N,:]
         return y0
-    def WISHrun(self, y0: np.ndarray, SLM: np.ndarray, delta3: float, delta4: float, plot: bool=True):
+    def WISHrun(self, y0: np.ndarray, SLM: np.ndarray, delta3: float, delta4: float):
         """
         Runs the WISH algorithm using a Gerchberg Saxton loop for phase retrieval.
         :param y0: Target modulated amplitudes in the sensor plane
         :param SLM: SLM modulation patterns
         :param delta3: Apparent sampling size of the SLM as seen from the sensor plane
         :param delta4: Sampling size of the sensor plane
-        :param N_os: Number of observations per image
-        :param N_iter: Maximal number of Gerchberg Saxton iterations
-        :param N_batch: Number of batches (modulations)
-        :param plot: If True, plots the advance of the retrieval every 10 iterations
-        :return u4_est, idx_converge: Estimated field of size (N,N) and the convergence indices to check convergence
-                                      speed
+        :return u3_est, u4_est, idx_converge: Estimated fields of size (N,N) and the convergence indices to check
+        convergence speed
         """
         wvl = self.wavelength
         z3 = self.z
@@ -413,29 +472,6 @@ class WISH_Sensor:
             sys.stdout.write(f"\rGS iteration {jj + 1}")
             sys.stdout.write(f"  (convergence index : {idx_converge[jj]})")
 
-
-
-            if jj % 10 == 0 and plot:
-                u4_est = cp.asnumpy(self.frt_gpu_s(u3, delta3, self.wavelength, z3) * Q)
-                plt.close('all')
-                fig=plt.figure(0)
-                fig.suptitle(f'Iteration {jj}')
-                ax1=fig.add_subplot(121)
-                ax2=fig.add_subplot(122)
-                im=ax1.imshow(np.abs(u4_est), cmap='viridis')
-                ax1.set_title('Amplitude')
-                ax2.imshow(np.angle(u4_est), cmap='viridis')
-                ax2.set_title('Phase')
-
-                fig1=plt.figure(1)
-                ax = fig1.gca()
-                ax.plot(np.arange(0,jj,1), idx_converge[0:jj], marker='o')
-                ax.set_xlabel('Iterations')
-                ax.set_ylabel('Convergence estimator')
-                ax.set_title('Convergence curve')
-                plt.show()
-                time.sleep(2)
-
             # exit if the matrix doesn 't change much
             if jj > 1:
                 if cp.abs(idx_converge[jj] - idx_converge[jj - 1]) / idx_converge[jj] < 5e-5:
@@ -447,31 +483,24 @@ class WISH_Sensor:
                     break
         u4_est = self.frt_gpu_s(u3, delta3, self.wavelength, z3) * Q #propagate solution to sensor plane
         return u3, u4_est, idx_converge
-    def WISHrun_vec(self, y0: np.ndarray, SLM: np.ndarray, delta3: float, delta4: float, plot: bool = True):
+    def WISHrun_vec(self, y0: np.ndarray, SLM: np.ndarray, delta3: float, delta4: float):
         """
         Runs the WISH algorithm using a Gerchberg Saxton loop for phase retrieval.
         :param y0: Target modulated amplitudes in the sensor plane
         :param SLM: SLM modulation patterns
         :param delta3: Apparent sampling size of the SLM as seen from the sensor plane
         :param delta4: Sampling size of the sensor plane
-        :param N_os: Number of observations per image
-        :param N_iter: Maximal number of Gerchberg Saxton iterations
-        :param N_batch: Number of batches (modulations)
-        :param plot: If True, plots the advance of the retrieval every 10 iterations
-        :return u4_est, idx_converge: Estimated field of size (N,N) and the convergence indices to check convergence
-                                      speed
+        :return u3_est, u4_est, idx_converge: Estimated fields of size (N,N) and the convergence indices to check
+        convergence speed
         """
         wvl = self.wavelength
         z3 = self.z
         ## parameters
         N = y0.shape[0]
         Nim = self.Nim
-        N_batch = self.N_mod
         N_os = self.N_os
         N_iter = self.N_gs
-        U3 = cp.zeros((N, N, Nim), dtype=cp.complex64)  # store all U3 gpu
-        u4 = cp.zeros((N, N, Nim), dtype=cp.complex64)  # gpu
-        y = cp.zeros((N, N, Nim), dtype=cp.complex64)
+        U3 = cp.empty((Nim, N, N), dtype=cp.complex64)  # store all U3 gpu
         ## initilize a3
         k = 2 * np.pi / wvl
         xx = cp.linspace(0, N - 1, N, dtype=cp.float) - (N / 2) * cp.ones(N, dtype=cp.float)
@@ -482,52 +511,32 @@ class WISH_Sensor:
         del xx, yy, X, Y, R
         SLM = cp.asarray(SLM.repeat(N_os, axis=2))
         y0 = cp.asarray(y0)
+        SLM=SLM.transpose(2,0,1)
+        y0=y0.transpose(2,0,1)
         for ii in range(N_os):
-            y0_batch = y0[:, :, ii]
-            SLM_batch = SLM[:, :, ii]
-            U3[:, :, ii] = self.frt_gpu_s(y0_batch / Q, delta4, self.wavelength, -z3) * cp.conj(
+            y0_batch = y0[ii, :, :]
+            SLM_batch = y0[ii, :, :]
+            U3[ii, :, :] = self.frt_gpu_s(y0_batch / Q, delta4, self.wavelength, -z3) * cp.conj(
                 SLM_batch)  # y0_batch gpu
-        u3 = cp.mean(U3[:, :, 0:N_os], 2)
+        u3 = cp.mean(U3[0:N_os, :, :], 0)
         del SLM_batch, y0_batch
-        # i_mask, j_mask = self.define_mask(np.abs(y0[:, :, 0]) ** 2, plot=True)[1:3]
         ## Recon run : GS loop
         idx_converge = np.empty(N_iter)
+        plan_fft = fftpack.get_fft_plan(U3, axes=(1,2))
         for jj in range(N_iter):
             sys.stdout.flush()
-            u4 = self.frt_gpu_s((SLM.swapaxes(2, 0) * u3).swapaxes(2, 0), delta3, self.wavelength,
-                                z3)  # U4 is the field on the sensor
-            y = y0 * cp.exp(1j * cp.angle(u4))  # impose the amplitude
-            U3 = self.frt_gpu_s(y, delta4, self.wavelength, -z3) * cp.conj(SLM)
+            U3 = self.frt_gpu_vec_s((SLM * u3), delta3, self.wavelength,z3, plan=plan_fft)  #on the sensor
             # convergence index matrix for each batch
-            idx_converge0 = (1 / N) * cp.linalg.norm((cp.abs(u4) - (1 / N ** 2) * cp.sum(cp.abs(SLM), axis=(0, 1)) *
-                                                      y0) * (y0 > 0), axis=(0, 1))  # eventual mask absorption
-            u3 = cp.mean(U3, 2)  # average over batches
+            idx_converge0 = (1 / N) * cp.linalg.norm((cp.abs(U3) -y0) * (y0 > 0), axis=(1, 2))
+            U3 = y0 * cp.exp(1j * cp.angle(U3))  # impose the amplitude
+            U3 = self.frt_gpu_vec_s(U3, delta4, self.wavelength, -z3, plan=plan_fft) * cp.conj(SLM)
+
+            u3 = cp.mean(U3, 0)  # average over batches
             idx_converge[jj] = np.mean(idx_converge0)  # sum over batches
             sys.stdout.write(f"\rGS iteration {jj + 1}")
             sys.stdout.write(f"  (convergence index : {idx_converge[jj]})")
 
-            if jj % 10 == 0 and plot:
-                u4_est = cp.asnumpy(self.frt_gpu_s(u3, delta3, self.wavelength, z3) * Q)
-                plt.close('all')
-                fig = plt.figure(0)
-                fig.suptitle(f'Iteration {jj}')
-                ax1 = fig.add_subplot(121)
-                ax2 = fig.add_subplot(122)
-                im = ax1.imshow(np.abs(u4_est), cmap='viridis')
-                ax1.set_title('Amplitude')
-                ax2.imshow(np.angle(u4_est), cmap='viridis')
-                ax2.set_title('Phase')
-
-                fig1 = plt.figure(1)
-                ax = fig1.gca()
-                ax.plot(np.arange(0, jj, 1), idx_converge[0:jj], marker='o')
-                ax.set_xlabel('Iterations')
-                ax.set_ylabel('Convergence estimator')
-                ax.set_title('Convergence curve')
-                plt.show()
-                time.sleep(2)
-
-            # exit if the matrix doesn 't change much
+            # exit if the matrix doesn't change much
             if jj > 1:
                 #if cp.abs(idx_converge[jj] - idx_converge[jj - 1]) / idx_converge[jj] < 1e-4:
                 if cp.abs(idx_converge[jj]) < 5e-6:

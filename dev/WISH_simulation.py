@@ -115,12 +115,15 @@ def main():
     T_run_0=time.time()
     u3_est, u4_est, idx_converge = Sensor.WISHrun(y0, SLM, delta3, delta4, plot=False)
     T_run=time.time()-T_run_0
+    u41=cp.asarray(u40)
+    phase_RMS = (1 / (2 * np.pi * (N - 2 * padding))) * cp.asarray(
+        [cp.linalg.norm((cp.angle(u41) - cp.angle(cp.exp(1j * th) * u4_est)) * (cp.abs(u41) > 0)) for th in
+         cp.linspace(-np.pi, np.pi, 512)])
+    phase_rms = cp.asnumpy(cp.min(phase_RMS))
     u3_est = cp.asnumpy(u3_est)
     u4_est = cp.asnumpy(u4_est)
-    phase_RMS =(1/(2*np.pi*(N-2*padding))) * np.array(
-        [np.linalg.norm((np.angle(u40)-np.angle(np.exp(1j*th)*u4_est))*(np.abs(u40) > 0)) for th in
-         np.linspace(-np.pi, np.pi, 512)])
-    phase_rms = np.min(phase_RMS)
+
+
     print(f"\n Phase RMS is : {phase_rms}")
     #total time
     T= time.time()-T0
