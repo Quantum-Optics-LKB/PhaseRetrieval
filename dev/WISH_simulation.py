@@ -31,13 +31,15 @@ def main():
     #I0 = I0.astype(float)/256
     #I0 = np.pad(I0.astype(np.float) / 256, (256, 256))  # protection band
     im = np.array(Image.open('intensities/I0_256_full.bmp'))[:,:,0]
+    #im = np.load('measurements/y0_32.npy')[:,:,0]**2
     phi0 = np.array(Image.open('phases/harambe_256_full.bmp'))[:,:,0]
     im = cp.asnumpy(zoom(cp.asarray(im), 1))
     phi0 = cp.asnumpy(zoom(cp.asarray(phi0), 1))
-    padding=64
-    u40 = np.pad(im.astype(np.float)/256, (padding, padding)) #protection band
+    padding=256
+    u40 = np.pad(im.astype(np.float32)/256, (padding, padding)) #protection band
+    #u40 = np.pad(im.astype(np.float32), (padding, padding)) #protection band
     u40 = Sensor.gaussian_profile(u40, 0.5)
-    phi0 = np.pad(phi0.astype(np.float)/256, (padding,padding)) #protection band
+    phi0 = np.pad(phi0.astype(np.float32)/256, (padding,padding)) #protection band
     u40 = u40 * (np.exp(1j * phi0 * 2 * np.pi))
     u40=u40.astype(np.complex64)
     N = u40.shape[0]
@@ -87,7 +89,8 @@ def main():
         divider2 = make_axes_locatable(ax2)
         cax2 = divider2.append_axes('right', size='5%', pad=0.05)
         im1=ax1.imshow(np.angle(SLM[:,:,1]), vmin=-np.pi, vmax = np.pi, cmap='twilight')
-        im2=ax2.imshow(np.abs(u30), vmin=0, vmax=1)
+        #im2=ax2.imshow(np.abs(u30), vmin=0, vmax=1)
+        im2=ax2.imshow(np.abs(u30)) #, vmin=0, vmax=1)
         ax1.set_title("SLM modulation pattern")
         ax2.set_title("Back-propagated field")
         cbar1=fig.colorbar(im1, cax=cax1)
@@ -113,7 +116,7 @@ def main():
 
     ##Recon initilization
     T_run_0=time.time()
-    u3_est, u4_est, idx_converge = Sensor.WISHrun(y0, SLM, delta3, delta4, plot=False)
+    u3_est, u4_est, idx_converge = Sensor.WISHrun_vec(y0, SLM, delta3, delta4)
     T_run=time.time()-T_run_0
     u41=cp.asarray(u40)
     phase_RMS = (1 / (2 * np.pi * (N - 2 * padding))) * cp.asarray(

@@ -99,7 +99,7 @@ def main():
     #process the captured image : converting to amplitude and padding if needed
     ims=(ims/256).astype(np.float)
     y0 = Sensor.process_ims(ims, N)
-    np.save('measurements/SLM.npy', SLM)
-    np.save('measurements/y0.npy', y0)
+    np.save('measurements/SLM_32.npy', SLM)
+    np.save('measurements/y0_32.npy', y0)
 if __name__=="__main__":
     main()

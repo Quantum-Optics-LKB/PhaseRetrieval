@@ -157,12 +157,12 @@ class WISH_Sensor:
         N = A0.shape[0]
         x = np.linspace(0, N - 1, N) - (N / 2) * np.ones(N)
         y = np.linspace(0, N - 1, N) - (N / 2) * np.ones(N)
-        d2 = wv * z / (N*d1)
+        d2 = wv * abs(z) / (N*d1)
         X1, Y1 = d1 * np.meshgrid(x, y)[0], d1 * np.meshgrid(x, y)[1]
         X2, Y2 = d2 * np.meshgrid(x, y)[0], d2 * np.meshgrid(x, y)[1]
         R1 = np.sqrt(X1 ** 2 + Y1 ** 2)
         R2 = np.sqrt(X2 ** 2 + Y2 ** 2)
-        D = 1 /(1j*wv*abs(z))
+        D = 1 /(1j*wv*z)
         Q1 = np.exp(1j*(k/(2*z))*R1**2)
         Q2 = np.exp(1j*(k/(2*z))*R2**2)
         if z >=0:
@@ -184,12 +184,12 @@ class WISH_Sensor:
         N = A0.shape[0]
         x = cp.linspace(0, N - 1, N) - (N / 2) * cp.ones(N)
         y = cp.linspace(0, N - 1, N) - (N / 2) * cp.ones(N)
-        d2 = wv * z / (N*d1)
+        d2 = wv * abs(z) / (N*d1)
         X1, Y1 = d1 * cp.meshgrid(x, y)[0], d1 * cp.meshgrid(x, y)[1]
         X2, Y2 = d2 * cp.meshgrid(x, y)[0], d2 * cp.meshgrid(x, y)[1]
         R1 = cp.sqrt(X1 ** 2 + Y1 ** 2)
         R2 = cp.sqrt(X2 ** 2 + Y2 ** 2)
-        D = 1 /(1j*wv*abs(z))
+        D = 1 /(1j*wv*z)
         Q1 = cp.exp(1j*(k/(2*z))*R1**2)
         Q2 = cp.exp(1j*(k/(2*z))*R2**2)
         if z >=0:
@@ -198,7 +198,6 @@ class WISH_Sensor:
             A =D * Q2 * ((N*d1) ** 2) * cp.fft.fftshift(cp.fft.ifft2(cp.fft.ifftshift(A0 * Q1, axes=(0,1)), axes=(0,1)), axes=(0,1))
 
         return A
-
     @staticmethod
     def frt_gpu_vec(A0: np.ndarray, d1: float, wv: float, z: float):
         """
@@ -213,12 +212,12 @@ class WISH_Sensor:
         N = A0.shape[1]
         x = cp.linspace(0, N - 1, N) - (N / 2) * cp.ones(N)
         y = cp.linspace(0, N - 1, N) - (N / 2) * cp.ones(N)
-        d2 = wv * z / (N * d1)
+        d2 = wv * abs(z) / (N * d1)
         X1, Y1 = d1 * cp.meshgrid(x, y)[0], d1 * cp.meshgrid(x, y)[1]
         X2, Y2 = d2 * cp.meshgrid(x, y)[0], d2 * cp.meshgrid(x, y)[1]
         R1 = cp.sqrt(X1 ** 2 + Y1 ** 2)
         R2 = cp.sqrt(X2 ** 2 + Y2 ** 2)
-        D = 1 / (1j * wv * abs(z))
+        D = 1 / (1j * wv * z)
         Q1 = cp.exp(1j * (k / (2 * z)) * R1 ** 2)
         Q2 = cp.exp(1j * (k / (2 * z)) * R2 ** 2)
         if z >= 0:
@@ -240,14 +239,13 @@ class WISH_Sensor:
         :return: A : Propagated field
         """
         N = A0.shape[0]
-        D = 1 /(1j*wv*abs(z))
+        D = 1 /(1j*wv*z)
         if z >=0:
             A =cp.multiply(D*(d1**2), cp.fft.fftshift(cp.fft.fft2(cp.fft.ifftshift(A0, axes=(0,1)), axes=(0,1)), axes=(0,1)))
         elif z<0:
             A =cp.multiply(D * ((N*d1) ** 2), cp.fft.fftshift(cp.fft.ifft2(cp.fft.ifftshift(A0, axes=(0,1)), axes=(0,1)), axes=(0,1)))
 
         return A
-
     @staticmethod
     def frt_gpu_vec_s(A0: np.ndarray, d1: float, wv: float, z: float, plan=None):
         """
@@ -402,12 +400,12 @@ class WISH_Sensor:
         :return y0 : Processed field of size (N,N, Nim)
         """
         if ims.dtype=='uint8':
-            ims=(ims/256).astype(float)
+            ims=(ims/256).astype(np.float32)
         y0 = np.real(np.sqrt(ims)); # change from intensity to magnitude
         y0 = np.pad(y0, (round((N - y0.shape[0]) / 2), round((N - y0.shape[1]) / 2)))
         if y0.shape[0] > N:
             y0=y0[0:N,0:N,:]
-        return y0
+        return y0.astype(np.float32)
     def WISHrun(self, y0: np.ndarray, SLM: np.ndarray, delta3: float, delta4: float):
         """
         Runs the WISH algorithm using a Gerchberg Saxton loop for phase retrieval.
@@ -436,11 +434,9 @@ class WISH_Sensor:
         R = cp.sqrt(X ** 2 + Y ** 2)
         Q = cp.exp(1j*(k/(2*z3))*R**2)
         del xx, yy, X, Y, R
-        SLM = cp.asarray(SLM)
-        y0 = cp.asarray(y0)
-        SLM_batch = SLM[:, :, 0]
+        SLM_batch = cp.asarray(SLM[:, :, 0])
         for ii in range(N_os):
-            y0_batch = y0[:,:, ii]
+            y0_batch = cp.asarray(y0[:,:, ii])
             u3_batch[:,:, ii] = self.frt_gpu_s(y0_batch/Q, delta4, self.wavelength, -z3) * cp.conj(SLM_batch) #y0_batch gpu
         u3 = cp.mean(u3_batch, 2)
         #i_mask, j_mask = self.define_mask(np.abs(y0[:, :, 0]) ** 2, plot=True)[1:3]
@@ -452,19 +448,21 @@ class WISH_Sensor:
             idx_converge0 = np.empty(N_batch)
             for idx_batch in range(N_batch):
                 # put the correct batch into the GPU
-                #SLM_batch = SLM[:,:, idx_batch]
+                SLM_batch = SLM[:,:, idx_batch]
                 y0_batch = y0[:,:, int(N_os * idx_batch): int(N_os * (idx_batch+1))]
+                y0_batch = cp.asarray(y0_batch)
+                SLM_batch=cp.asarray(SLM_batch)
                 for _ in range(N_os):
-                    u4[:,:,_] = self.frt_gpu_s(u3 * SLM[:,:, idx_batch], delta3, self.wavelength, z3) # U4 is the field on the sensor
+                    u4[:,:,_] = self.frt_gpu_s(u3 * SLM_batch, delta3, self.wavelength, z3) # U4 is the field on the sensor
                     y[:,:,_] = y0_batch[:,:,_] * cp.exp(1j * cp.angle(u4[:,:,_])) #impose the amplitude
                     #[:,:,_] = u4[:,:,_]
                     #y[i_mask:j_mask,i_mask:j_mask,_] = y0_batch[i_mask:j_mask,i_mask:j_mask,_] \
                     #                                   * cp.exp(1j * cp.angle(u4[i_mask:j_mask,i_mask:j_mask,_]))
-                    u3_batch[:,:,_] = self.frt_gpu_s(y[:,:,_], delta4, self.wavelength, -z3) * cp.conj(SLM[:,:, idx_batch])
+                    u3_batch[:,:,_] = self.frt_gpu_s(y[:,:,_], delta4, self.wavelength, -z3) * cp.conj(SLM_batch)
                 u3_collect = u3_collect + cp.mean(u3_batch, 2) # collect(add) U3 from each batch
                 # convergence index matrix for each batch
                 idx_converge0[idx_batch] = (1/N)*\
-                                           cp.linalg.norm((cp.abs(u4)-(1/N**2)*cp.sum(cp.abs(SLM[:,:, idx_batch]))*
+                                           cp.linalg.norm((cp.abs(u4)-(1/N**2)*cp.sum(cp.abs(SLM_batch))*
                                                                  y0_batch)*(y0_batch>0)) #eventual mask absorption
 
             u3 = (u3_collect / N_batch) # average over batches
@@ -538,8 +536,8 @@ class WISH_Sensor:
 
             # exit if the matrix doesn't change much
             if jj > 1:
-                #if cp.abs(idx_converge[jj] - idx_converge[jj - 1]) / idx_converge[jj] < 1e-4:
-                if cp.abs(idx_converge[jj]) < 5e-6:
+                if cp.abs(idx_converge[jj] - idx_converge[jj - 1]) / idx_converge[jj] < 5e-5:
+                #if cp.abs(idx_converge[jj]) < 5e-6:
                     # if idx_converge[jj]>idx_converge[jj-1]:
                     print('\nConverged. Exit the GS loop ...')
                     # idx_converge = idx_converge[0:jj]

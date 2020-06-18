@@ -97,15 +97,16 @@ def main():
     print('\nCaptured images are simulated')
     #reconstruction
     #process the captured image : converting to amplitude and padding if needed
-    ims=(ims/256).astype(np.float)
+    ims=(ims/256).astype(np.float32)
     print('\nDisplaying captured images')
     y0 = Sensor.process_ims(ims, N)
     #for k in range(y0.shape[2]):
-    plt.imshow(y0[:,:,1], vmin=0, vmax=1)
+    plt.imshow(y0[:,:,Sensor.N_os], vmin=0, vmax=1)
     plt.scatter(N/2,N/2, color='r', marker='.')
+    plt.show()
     ##Recon initilization
     T_run_0=time.time()
-    u3_est, u4_est, idx_converge = Sensor.WISHrun(y0, SLM, delta3, delta4, plot=False)
+    u3_est, u4_est, idx_converge = Sensor.WISHrun(y0, SLM, delta3, delta4)
     T_run=time.time()-T_run_0
     u3_est = cp.asnumpy(u3_est)
     u4_est = cp.asnumpy(u4_est)
