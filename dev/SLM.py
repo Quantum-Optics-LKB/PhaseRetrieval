@@ -44,7 +44,7 @@ class SLMscreen:
         Displays the array on the SLM
         :param array: np.ndarray
         """
-        self.ax.imshow(array, cmap='gray', aspect='equal')
+        self.ax.imshow(array, cmap='gray', aspect='equal', vmin=0, vmax=255)
         self.window.showMaximized()
         plt.pause(0.5)
 
