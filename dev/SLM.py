@@ -27,7 +27,7 @@ class SLMscreen:
         mpl.rcParams['toolbar'] = 'None'
         mpl.rcParams['image.interpolation'] = 'None'
         mpl.rcParams['image.resample'] = False
-        self.fig = plt.figure(figsize=(resX / 100, resY / 100), frameon=False)
+        self.fig = plt.figure(0, figsize=(resX / 100, resY / 100), frameon=False)
         self.ax = plt.axes([0,0,1,1], frameon=False)
         self.ax.get_xaxis().set_visible(False)
         self.ax.get_yaxis().set_visible(False)

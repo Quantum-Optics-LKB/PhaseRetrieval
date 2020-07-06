@@ -76,15 +76,19 @@ def main():
             if obs==0:
                 T = alignment(frame)
             #frame = cv2.warpAffine(frame, T, frame.shape)
-            ims[:, :, obs] = zoom(cv2.flip(frame, 0), zoom_factor)
+            frame = cv2.flip(frame, 0)
+            frame = cv2.rotate(frame, cv2.ROTATE_90_CLOCKWISE)
+            ims[:, :, obs] = zoom(frame, zoom_factor)
         for i in range(1,Sensor.N_mod):
             slm[:,:,i]=Sensor.modulate((resY,resX), pxsize=1)
-            slm_display.update((256*slm[:,:,i]).astype('uint8'))
+            slm_display.update((223*slm[:,:,i]).astype('uint8'))
             print(f"Displaying {i + 1} th SLM pattern")
             for obs in range(Sensor.N_os):
                 ret, frame = Cam.read()
                 #frame = cv2.warpAffine(frame, T, frame.shape)
-                ims[:,:,Sensor.N_os*i+obs]= zoom(cv2.flip(frame, 0), zoom_factor)
+                frame = cv2.flip(frame, 0)
+                frame = cv2.rotate(frame, cv2.ROTATE_90_CLOCKWISE)
+                ims[:,:,Sensor.N_os*i+obs]= zoom(frame, zoom_factor)
         slm_display.close()
         Cam.release()
     if slm_type =='DMD':
@@ -97,7 +101,7 @@ def main():
     print('\nCaptured images are simulated')
     #reconstruction
     #process the captured image : converting to amplitude and padding if needed
-    ims=(ims/256).astype(np.float32)
+    ims=(ims/(2**16)).astype(np.float32)
     print('\nDisplaying captured images')
     y0 = Sensor.process_ims(ims, N)
     #for k in range(y0.shape[2]):
@@ -106,7 +110,7 @@ def main():
     plt.show()
     ##Recon initilization
     T_run_0=time.time()
-    u3_est, u4_est, idx_converge = Sensor.WISHrun(y0, SLM, delta3, delta4)
+    u3_est, u4_est, idx_converge = Sensor.WISHrun_vec(y0, SLM, delta3, delta4)
     T_run=time.time()-T_run_0
     u3_est = cp.asnumpy(u3_est)
     u4_est = cp.asnumpy(u4_est)
