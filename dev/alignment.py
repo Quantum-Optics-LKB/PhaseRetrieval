@@ -10,6 +10,7 @@ from mpl_toolkits.axes_grid1 import make_axes_locatable
 import cv2
 import EasyPySpin
 import SLM
+from scipy import ndimage
 
 def grating(N_ref, N, d):
     """
@@ -46,8 +47,9 @@ mpl.rcParams['toolbar'] = 'toolbar2'
 mpl.rcParams['image.interpolation'] = 'None'
 mpl.rcParams['image.resample'] = False
 fig=plt.figure(1)
-ax = fig.add_subplot(121)
-ax1 = fig.add_subplot(122)
+ax = fig.add_subplot(131)
+ax1 = fig.add_subplot(132)
+ax2 = fig.add_subplot(133)
 divider = make_axes_locatable(ax)
 cax = divider.append_axes('right', size='5%', pad=0.05)
 #divider1 = make_axes_locatable(ax1)
@@ -58,7 +60,7 @@ frame_nbr=0
     #frame_nbr+=1
 ret, frame = Cam.read()
 frame=cv2.flip(frame, 0)
-frame = cv2.rotate(frame, cv2.ROTATE_90_CLOCKWISE)
+frame = cv2.rotate(frame, cv2.ROTATE_90_COUNTERCLOCKWISE)
 
 # Convert the img to grayscale
 th = 135
@@ -130,12 +132,19 @@ ax.legend()
 plt.colorbar(im, cax)
     #plt.colorbar(im1, cax1)
 #plt.pause(0.01)
-plt.figure(2)
-counts, bins =np.histogram(thetas, bins=100, range=(0,1))
-plt.hist(thetas, bins=100, range=(0,1))
-print(f"Angle is between {bins[np.where(counts==np.max(counts))[0]]} and {bins[np.where(counts==np.max(counts))[0]+1]}")
-plt.xlabel("Angle in degrees")
-plt.ylabel("Number of lines at the angle")
+fig2=plt.figure(2)
+ax3=fig2.gca()
+counts, bins =np.histogram(thetas, bins=50, range=(0,1))
+ax3.hist(thetas, bins=50, range=(0,1))
+ax3.set_xlabel("Angle in degrees")
+ax3.set_ylabel("Number of lines at the angle")
+theta=0.5*(bins[np.where(counts==np.max(counts))[0][0]+1]+bins[np.where(counts==np.max(counts))[0][0]])
+print(f"Angle is {theta} °")
+ax2.imshow(ndimage.rotate(frame, theta, reshape=False), cmap='gray')
+ax2.set_title("Corrected image")
+ax2.scatter(1024,1024, color='r', marker='.')
+ax2.axvline(x=1024, color='red', linewidth=1)
+ax2.axhline(y=1024, color='red', linewidth=1)
 plt.show()
 Cam.release()
 cv2.destroyAllWindows()

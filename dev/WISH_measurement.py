@@ -14,6 +14,7 @@ from WISH_lkb import WISH_Sensor
 from SLM import SLMscreen
 import cv2
 import EasyPySpin
+from scipy import ndimage
 
 plt.switch_backend("QT5Agg")
 
@@ -77,7 +78,7 @@ def main():
                 T = alignment(frame)
             #frame = cv2.warpAffine(frame, T, frame.shape)
             frame = cv2.flip(frame, 0)
-            frame = cv2.rotate(frame, cv2.ROTATE_90_CLOCKWISE)
+            frame = cv2.rotate(frame, cv2.ROTATE_90_COUNTERCLOCKWISE)
             ims[:, :, obs] = zoom(frame, zoom_factor)
         for i in range(1,Sensor.N_mod):
             slm[:,:,i]=Sensor.modulate((resY,resX), pxsize=1)
@@ -87,7 +88,7 @@ def main():
                 ret, frame = Cam.read()
                 #frame = cv2.warpAffine(frame, T, frame.shape)
                 frame = cv2.flip(frame, 0)
-                frame = cv2.rotate(frame, cv2.ROTATE_90_CLOCKWISE)
+                frame = cv2.rotate(frame, cv2.ROTATE_90_COUNTERCLOCKWISE)
                 ims[:,:,Sensor.N_os*i+obs]= zoom(frame, zoom_factor)
         slm_display.close()
         Cam.release()
