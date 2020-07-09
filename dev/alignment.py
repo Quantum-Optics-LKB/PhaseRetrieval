@@ -9,7 +9,8 @@ import matplotlib.pyplot as plt
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 import cv2
 import EasyPySpin
-import SLM
+import slmpy
+import time
 from scipy import ndimage
 
 def grating(N_ref, N, d):
@@ -40,12 +41,12 @@ Cam = EasyPySpin.VideoCapture(0)
 
 
 
-slm = SLM.SLMscreen(1280,1024)
+slm = slmpy.SLMdisplay(isImageLock = True)
 G=grating(0,223,20)
-slm.update(G)
-mpl.rcParams['toolbar'] = 'toolbar2'
-mpl.rcParams['image.interpolation'] = 'None'
-mpl.rcParams['image.resample'] = False
+slm.updateArray(G)
+time.sleep(0.5)
+ret, frame = Cam.read()
+slm.close()
 fig=plt.figure(1)
 ax = fig.add_subplot(131)
 ax1 = fig.add_subplot(132)
@@ -58,13 +59,11 @@ frame_nbr=0
 #for _ in range(1000):
     #print(frame_nbr)
     #frame_nbr+=1
-ret, frame = Cam.read()
 frame=cv2.flip(frame, 0)
 frame = cv2.rotate(frame, cv2.ROTATE_90_COUNTERCLOCKWISE)
-
 # Convert the img to grayscale
 th = 135
-gray = (frame/(2**8)).astype('uint8')
+gray = frame.astype('uint8')
 gray[gray>th]=255
 gray[gray<=th]=0
 #Define ROI only in the center of image
@@ -74,6 +73,9 @@ gray[:,0:512]=0
 gray[:,1536:2048]=0
 # Apply edge detection method on the image
 edges = cv2.Canny(gray, 50, 150, apertureSize=3)
+plt.figure(5)
+plt.imshow(edges)
+plt.show()
 # This returns an array of r and theta values
 lines = cv2.HoughLines(edges, 1, np.pi/10000, 600)
 # The below for loop runs till r and theta values

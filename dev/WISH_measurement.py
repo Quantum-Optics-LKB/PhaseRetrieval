@@ -11,7 +11,7 @@ import time
 import cupy as cp
 from scipy.ndimage import zoom
 from WISH_lkb import WISH_Sensor
-from SLM import SLMscreen
+import slmpy
 import cv2
 import EasyPySpin
 from scipy import ndimage
@@ -45,7 +45,8 @@ def main():
     ims = np.zeros((N,N,Sensor.Nim))
     if slm_type=='DMD':
         slm = np.ones((1080, 1920, Sensor.N_mod))
-        slm_display = SLMscreen(1920,1080)
+        slm_display = slmpy.SLMdisplay(isImageLock = True)
+
         slm_display.update(slm[:, :, 0])
         print(f"Displaying 1 st SLM pattern")
         for obs in range(Sensor.N_os):
@@ -55,22 +56,22 @@ def main():
             ims[:, :, obs] = zoom(cv2.flip(frame, 0), zoom_factor)
         for i in range(1,int(Sensor.N_mod/2)):
             slm[:, :, 2 * i] = Sensor.modulate_binary((1080, 1920), pxsize=1)
-            slm_display.update(slm[:, :, 2 * i])
+            slm_display.updateArray(slm[:, :, 2 * i])
             for obs in range(Sensor.N_os):
                 ret, frame = Cam.read()
                 frame = alignment(frame)
                 ims[:,:,2 * Sensor.N_os*i+obs]= zoom(cv2.flip(frame, 0), zoom_factor)
             slm[:, :, 2 *i + 1] = np.ones((1080, 1920)) - slm[:, :, 2 * i]
-            slm_display.update(slm[:, :, 2 * i+1])
+            slm_display.updateArray(slm[:, :, 2 * i+1])
             for obs in range(Sensor.N_os):
                 ret, frame = Cam.read()
                 frame = alignment(frame)
                 ims[:,:,2 * i + 1 + obs]= zoom(cv2.flip(frame, 0), 0.5)
     elif slm_type=='SLM':
         resX, resY = 1280, 1024
-        slm_display = SLMscreen(resX,resY)
+        slm_display = slmpy.SLMdisplay(isImageLock = True)
         slm = np.ones((resY, resX, Sensor.N_mod))
-        slm_display.update(slm[:, :, 0].astype('uint8'))
+        slm_display.updateArray(slm[:, :, 0].astype('uint8'))
         print(f"Displaying 1 st SLM pattern")
         for obs in range(Sensor.N_os):
             ret, frame = Cam.read()
@@ -82,7 +83,7 @@ def main():
             ims[:, :, obs] = zoom(frame, zoom_factor)
         for i in range(1,Sensor.N_mod):
             slm[:,:,i]=Sensor.modulate((resY,resX), pxsize=1)
-            slm_display.update((223*slm[:,:,i]).astype('uint8'))
+            slm_display.updateArray((223*slm[:,:,i]).astype('uint8'))
             print(f"Displaying {i + 1} th SLM pattern")
             for obs in range(Sensor.N_os):
                 ret, frame = Cam.read()
@@ -102,7 +103,7 @@ def main():
     print('\nCaptured images are simulated')
     #reconstruction
     #process the captured image : converting to amplitude and padding if needed
-    ims=(ims/(2**16)).astype(np.float32)
+    ims=(ims/(2**8)).astype(np.float32)
     print('\nDisplaying captured images')
     y0 = Sensor.process_ims(ims, N)
     #for k in range(y0.shape[2]):
