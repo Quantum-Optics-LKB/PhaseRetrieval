@@ -125,7 +125,9 @@ class WISH_Sensor:
         h, w = int(shape[0] / pxsize), int(shape[1] / pxsize)
         M = cp.random.choice(cp.asarray([0,1]), (h,w))   # random intensity mask
         #phi_m = np.kron(M, np.ones((10, 10)))
-        phi_m = cp.asnumpy(zoom(M, shape[0]/M.shape[0]))
+        phi_m = cp.asnumpy(zoom(M, (shape[0] / M.shape[0], shape[1] / M.shape[1])))
+        phi_m[np.abs(phi_m)<=0.5]=0
+        phi_m[np.abs(phi_m)>0.5]=1
         return phi_m
     def gaussian_profile(self, I: np.ndarray, sigma: float):
         """
@@ -536,7 +538,7 @@ class WISH_Sensor:
 
             # exit if the matrix doesn't change much
             if jj > 1:
-                if cp.abs(idx_converge[jj] - idx_converge[jj - 1]) / idx_converge[jj] < 1e-4:
+                if cp.abs(idx_converge[jj] - idx_converge[jj - 1]) / idx_converge[jj] < 5e-5:
                 #if cp.abs(idx_converge[jj]) < 5e-6:
                     # if idx_converge[jj]>idx_converge[jj-1]:
                     print('\nConverged. Exit the GS loop ...')

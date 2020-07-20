@@ -81,6 +81,8 @@ def main():
         plt.show()
     elif slm_type == 'SLM':
         SLM = Sensor.process_SLM(slm, N, delta3, type="phi")
+        #SLM[np.angle(SLM) > 0] = np.exp(1j*np.pi)
+        #SLM[np.angle(SLM) <= 0] = 1 + 1j * 0
         fig = plt.figure(1)
         ax1 = fig.add_subplot(121)
         ax2 = fig.add_subplot(122)
