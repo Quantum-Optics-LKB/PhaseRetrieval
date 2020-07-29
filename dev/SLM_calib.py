@@ -29,7 +29,7 @@ def circle(R, width, value):
     :param value : Value inside the circle
     :return: The circle as a 2d array
     """
-    x = 640 - np.linspace(0,1279, 1280)
+    x = 636 - np.linspace(0,1279, 1280)
     y = 512 - np.linspace(0,1023, 1024)
     X,Y = np.meshgrid(x,y)
     out = np.zeros(X.shape, dtype='uint8')
@@ -38,13 +38,14 @@ def circle(R, width, value):
     cond &= Radii < (R+width/2)
     out[cond] = value
     return out
-def lens(f):
+def lens(f, b):
     """
     Generates a lens pattern of focal length f
     :param f: focal length in m
+    :param b : bit value (0 to 255)
     :return: the phase mask corresponding to the lens
     """
-    x = 12.5e-6*(640 - np.linspace(0, 1279, 1280))
+    x = 12.5e-6*(636 - np.linspace(0, 1279, 1280))
     y = 12.5e-6*(512 - np.linspace(0, 1023, 1024))
     X, Y = np.meshgrid(x, y)
     R = np.sqrt(X**2 + Y**2)
@@ -52,19 +53,25 @@ def lens(f):
     phi = (k*R**2)/(2*f)
     phi = phi%(2*np.pi)
     phi/=2*np.pi
-    out = (255*phi).astype('uint8')
+    out = (b*phi).astype('uint8')
     return out
-L = lens(40e-3)
+L = lens(48.9e-3, 206)
 slm = slmpy.SLMdisplay(isImageLock=True)
 #cam = EasyPySpin.VideoCapture(0)
-G=grating(0,223,20)
+G=grating(0,206,20)
 C = circle(100, 20, 255)
 slm.updateArray(C)
 time.sleep(200000)
 #Displays lenses
-#for f in np.linspace(40e-3,45e-3, 40):
+#for f in np.linspace(70e-3,75e-3, 20):
 #    print(f)
-#    L=lens(f)
+#    L=lens(f, 206)
+#    slm.updateArray(L)
+#    time.sleep(0.25)
+#for b in np.linspace(180,255, 60, dtype='uint8'):
+#    print(b)
+    #G=grating(0,b,20)
+#    L = lens(42.7e-3, b)
 #    slm.updateArray(L)
 #    time.sleep(0.25)
 

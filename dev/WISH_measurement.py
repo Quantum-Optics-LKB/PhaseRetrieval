@@ -66,38 +66,41 @@ def main():
             for obs in range(Sensor.N_os):
                 ret, frame = Cam.read()
                 frame = alignment(frame)
-                ims[:,:,2 * i + 1 + obs]= zoom(cv2.flip(frame, 0), 0.5)
+                ims[:,:,2 * i + 1 + obs]= zoom(cv2.flip(frame, 0), zoom_factor)
     elif slm_type=='SLM':
-        resX, resY = 1280, 1024
+        resX, resY = 1272, 1024
         slm_display = slmpy.SLMdisplay(isImageLock = True)
         slm = np.ones((resY, resX, Sensor.N_mod))
         slm_display.updateArray(slm[:, :, 0].astype('uint8'))
         print(f"Displaying 1 st SLM pattern")
         for obs in range(Sensor.N_os):
             ret, frame = Cam.read()
-            if obs==0:
-                T = alignment(frame)
+            #if obs==0:
+            #    T = alignment(frame)
             #frame = cv2.warpAffine(frame, T, frame.shape)
             frame = cv2.flip(frame, 0)
             frame = cv2.rotate(frame, cv2.ROTATE_90_COUNTERCLOCKWISE)
-            frame = ndimage.rotate(frame, -0.588, reshape=False)
+            frame = ndimage.rotate(frame, 0.39, reshape=False)
             #frame = cv2.flip(frame, 1)
             #frame = cv2.rotate(frame, cv2.ROTATE_90_CLOCKWISE)
-            ims[:, :, obs] = zoom(frame, zoom_factor)
+            #ims[:, :, obs] = zoom(frame, zoom_factor)
+            print(f"Recording image nbr : {obs}")
+            ims[:, :, obs] = frame
         for i in range(1,Sensor.N_mod):
-            #slm[:,:,i]=Sensor.modulate((resY,resX), pxsize=2)
-            slm[:,:,i]=Sensor.modulate_binary((resY,resX), pxsize=3)
-            slm_display.updateArray((206*slm[:,:,i]).astype('uint8'))
+            slm[:,:,i]=Sensor.modulate((resY,resX), pxsize=12)
+            #slm[:,:,i]=Sensor.modulate_binary((resY,resX), pxsize=10)
             print(f"Displaying {i + 1} th SLM pattern")
+            slm_display.updateArray((206*slm[:,:,i]).astype('uint8'))
+            time.sleep(1)
             for obs in range(Sensor.N_os):
                 ret, frame = Cam.read()
                 #frame = cv2.warpAffine(frame, T, frame.shape)
                 frame = cv2.flip(frame, 0)
                 frame = cv2.rotate(frame, cv2.ROTATE_90_COUNTERCLOCKWISE)
-                frame = ndimage.rotate(frame, -0.588, reshape=False)
-                #frame = cv2.flip(frame, 1)
-                #frame = cv2.rotate(frame, cv2.ROTATE_90_CLOCKWISE)
-                ims[:,:,Sensor.N_os*i+obs]= zoom(frame, zoom_factor)
+                frame = ndimage.rotate(frame, 0.39, reshape=False)
+                #ims[:,:,Sensor.N_os*i+obs]= zoom(frame, zoom_factor)
+                print(f"Recording image nbr : {Sensor.N_os*i+obs}")
+                ims[:,:,Sensor.N_os*i+obs]= frame
         slm_display.close()
         Cam.release()
     if slm_type =='DMD':
@@ -107,15 +110,19 @@ def main():
     elif slm_type == 'SLM':
         SLM = Sensor.process_SLM(slm, N, delta3, type="phi")
 
+
+
     print('\nCaptured images are simulated')
     #reconstruction
     #process the captured image : converting to amplitude and padding if needed
-    ims=(ims/(2**8)).astype(np.float32)
+    ims=(ims/(2**16)).astype(np.float32)
     print('\nDisplaying captured images')
     y0 = Sensor.process_ims(ims, N)
     #for k in range(y0.shape[2]):
-    plt.imshow(y0[:,:,Sensor.N_os+1], vmin=0, vmax=1)
-    plt.scatter(N/2,N/2, color='r', marker='.')
+    plt.imshow(y0[:,:,0], vmin=0, vmax=1)
+    #    plt.imshow(y0[:,:,k], vmin=0, vmax=1)
+    #    plt.title(f"{k}")
+    #    plt.scatter(N/2,N/2, color='r', marker='.')
     plt.show()
     ##Recon initilization
     T_run_0=time.time()
@@ -145,7 +152,7 @@ def main():
     ax3.set_title('intensity estimation (camera plane)')
     im4=ax4.imshow(np.angle(u4_est), cmap='twilight_shifted', vmin=-np.pi, vmax=np.pi)
     ax4.set_title('Phase estimation')
-    im6 = ax6.imshow(np.abs(u3_est)**2, cmap='viridis', vmin=0, vmax=1)
+    im6 = ax6.imshow(np.abs(u3_est)**2, cmap='viridis') #, vmin=0, vmax=1)
     ax6.set_title('Back-propagated field (SLM plane)')
     ax5.plot(np.arange(0, len(idx_converge),1), idx_converge)
     ax5.set_title("Convergence curve")

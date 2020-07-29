@@ -62,10 +62,10 @@ slm.close()
 Cam.release()
 frame_l=cv2.flip(frame_l, 0)
 frame_l = cv2.rotate(frame_l, cv2.ROTATE_90_COUNTERCLOCKWISE)
-frame_l = ndimage.rotate(frame_l, -0.588, reshape=False)
+frame_l = ndimage.rotate(frame_l, 0.39, reshape=False)
 frame_c=cv2.flip(frame_c, 0)
 frame_c = cv2.rotate(frame_c, cv2.ROTATE_90_COUNTERCLOCKWISE)
-frame_c = ndimage.rotate(frame_c, -0.588, reshape=False)
+frame_c = ndimage.rotate(frame_c, 0.39, reshape=False)
 #plot captured images of lines and circles
 fig=plt.figure(1)
 ax0=fig.add_subplot(121)
@@ -75,7 +75,7 @@ ax1.imshow(frame_c)
 plt.show()
 # Convert the line img to binary grayscale
 th = 85
-gray_l = frame_l.astype('uint8')
+gray_l = ((1/2**8)*frame_l).astype('uint8')
 gray_l[gray_l>th]=255
 gray_l[gray_l<=th]=0
 #Define ROI only in the center of image
@@ -85,7 +85,7 @@ gray_l[:,0:512]=0
 gray_l[:,1536:2048]=0
 # convert the circle img to binary grayscale
 th_c = 85
-gray_c = frame_c.astype('uint8')
+gray_c = ((1/2**8)*frame_c).astype('uint8')
 gray_c[gray_c>th_c]=255
 gray_c[gray_c<=th_c]=0
 # Apply edge detection method on the image

@@ -33,9 +33,9 @@ def main():
     im = np.array(Image.open('intensities/I0_256_full.bmp'))[:,:,0]
     #im = np.load('measurements/y0_32.npy')[:,:,0]**2
     phi0 = np.array(Image.open('phases/harambe_256_full.bmp'))[:,:,0]
-    im = cp.asnumpy(zoom(cp.asarray(im), 1))
-    phi0 = cp.asnumpy(zoom(cp.asarray(phi0), 1))
-    padding=64
+    im = cp.asnumpy(zoom(cp.asarray(im), 4))
+    phi0 = cp.asnumpy(zoom(cp.asarray(phi0), 4))
+    padding=512
     u40 = np.pad(im.astype(np.float32)/256, (padding, padding)) #protection band
     #u40 = np.pad(im.astype(np.float32), (padding, padding)) #protection band
     u40 = Sensor.gaussian_profile(u40, 0.5)
@@ -53,16 +53,14 @@ def main():
         slm = np.ones((1080, 1920, Sensor.N_mod))
         slm[:,:,1] = Sensor.modulate_binary((1080, 1920), pxsize=2)
         for i in range(1,Sensor.N_mod//2):
-            slm[:, :, 2 * i] = Sensor.modulate_binary((1080, 1920), pxsize=2)
+            slm[:, :, 2 * i] = Sensor.modulate((1080, 1920), pxsize=2)
             slm[:, :, 2 * i + 1] = np.ones((1080, 1920)) - slm[:, :, 2 * i]
     elif slm_type=='SLM':
-        slm = np.ones((1024, 1280, Sensor.N_mod))
-        for i in range(1,Sensor.N_mod):
-            slm[:,:,i]=Sensor.modulate((1024,1280), pxsize=1)
+        slm = np.ones((1024, 1272, Sensor.N_mod))
+        for i in range(0,Sensor.N_mod):
+            slm[:,:,i]=Sensor.modulate((1024,1272), pxsize=6)
     if slm_type =='DMD':
         SLM = Sensor.process_SLM(slm, N, delta3, type="amp")
-        SLM[np.abs(SLM) > 0.5] = 1 + 1j*0
-        SLM[SLM <= 0.5] = 0 + 1j*0
         fig = plt.figure(1)
         ax1 = fig.add_subplot(121)
         ax2 = fig.add_subplot(122)
@@ -81,8 +79,6 @@ def main():
         plt.show()
     elif slm_type == 'SLM':
         SLM = Sensor.process_SLM(slm, N, delta3, type="phi")
-        #SLM[np.angle(SLM) > 0] = np.exp(1j*np.pi)
-        #SLM[np.angle(SLM) <= 0] = 1 + 1j * 0
         fig = plt.figure(1)
         ax1 = fig.add_subplot(121)
         ax2 = fig.add_subplot(122)
@@ -142,19 +138,19 @@ def main():
     ax5 = fig.add_subplot(235)
     divider1 = make_axes_locatable(ax1)
     cax1 = divider1.append_axes('right', size='5%', pad=0.05)
-    divider2 = make_axes_locatable(ax2)
+    divider2 = make_axes_locatable(ax4)
     cax2 = divider2.append_axes('right', size='5%', pad=0.05)
-    divider3 = make_axes_locatable(ax4)
+    divider3 = make_axes_locatable(ax2)
     cax3 = divider3.append_axes('right', size='5%', pad=0.05)
-    divider4 = make_axes_locatable(ax5)
-    cax4 = divider4.append_axes('right', size='5%', pad=0.05)
+    divider5 = make_axes_locatable(ax5)
+    cax5 = divider5.append_axes('right', size='5%', pad=0.05)
     im1=ax1.imshow(np.abs(u40), cmap='viridis', vmin=0, vmax=1)
     ax1.set_title('Initial amplitude', fontsize=20)
     im2=ax4.imshow(np.angle(u40), cmap='twilight',vmin=-np.pi, vmax=np.pi)
     ax4.set_title('Initial phase', fontsize=20)
     im3=ax2.imshow(np.abs(u4_est), cmap='viridis', vmin=0, vmax=1)
     ax2.set_title('Amplitude estimation', fontsize=20)
-    im4=ax5.imshow(np.angle(u4_est), cmap='twilight', vmin=-np.pi, vmax=np.pi)
+    im5=ax5.imshow(np.angle(u4_est), cmap='twilight', vmin=-np.pi, vmax=np.pi)
     ax5.text(8, 18, f"RMS = {'{:.3f}%'.format(100 * phase_rms)}", bbox={'facecolor': 'white', 'pad': 4})
     ax5.set_title('Phase estimation', fontsize=20)
     ax3.plot(np.arange(0, len(idx_converge),1), idx_converge)
@@ -165,11 +161,11 @@ def main():
     cbar1=fig.colorbar(im1, cax=cax1)
     cbar2=fig.colorbar(im2, cax=cax2)
     cbar3=fig.colorbar(im3, cax=cax3)
-    cbar4=fig.colorbar(im4, cax=cax4)
+    cbar5=fig.colorbar(im5, cax=cax5)
     cbar1.set_label("Intensity", rotation=270)
     cbar2.set_label("Phase in rad", rotation=270)
     cbar3.set_label("Intensity", rotation=270)
-    cbar4.set_label("Phase in rad", rotation=270)
+    cbar5.set_label("Phase in rad", rotation=270)
     plt.show()
     #for modulation pixel size run
     fig=plt.figure()

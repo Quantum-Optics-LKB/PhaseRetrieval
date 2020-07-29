@@ -13,7 +13,7 @@ import time
 import sys
 import configparser
 import cupy as cp
-from cupyx.scipy.ndimage import zoom
+from cupyx.scipy.ndimage import zoom, shift
 from cupyx.scipy import fftpack
 
 
@@ -109,10 +109,10 @@ class WISH_Sensor:
         :param phi: Phase map to be modulated
         :return: phi_m a modulated phase map to multiply to phi
         """
-        # generate (N/10)x(N/10) random matrices that will then be upscaled through interpolation
         h, w = int(shape[0] / pxsize), int(shape[1] / pxsize)
-        M = cp.random.rand(h, w)  # random matrix between [-1 , 1]
-        phi_m = cp.asnumpy(zoom(M, (shape[0]/M.shape[0], shape[1]/M.shape[1])))
+        M = (1/256)*cp.random.random_integers(0,255,(h, w))  # random matrix between [0 , 1]
+        M = M.astype(np.float32)
+        phi_m = cp.asnumpy(zoom(M, (shape[0]/M.shape[0], shape[1]/M.shape[1]), order=0))
         return phi_m
     @staticmethod
     def modulate_binary(shape: tuple, pxsize: int = 10):
@@ -123,11 +123,9 @@ class WISH_Sensor:
         """
         # generate (N/10)x(N/10) random matrices that will then be upscaled through interpolation
         h, w = int(shape[0] / pxsize), int(shape[1] / pxsize)
-        M = cp.random.choice(cp.asarray([0,1]), (h,w))   # random intensity mask
+        M = cp.random.choice(cp.asarray([0,0.5]), (h,w))   # random intensity mask
         #phi_m = np.kron(M, np.ones((10, 10)))
-        phi_m = cp.asnumpy(zoom(M, (shape[0] / M.shape[0], shape[1] / M.shape[1])))
-        phi_m[np.abs(phi_m)<=0.5]=0
-        phi_m[np.abs(phi_m)>0.5]=1
+        phi_m = cp.asnumpy(zoom(M, (shape[0] / M.shape[0], shape[1] / M.shape[1]), order=0))
         return phi_m
     def gaussian_profile(self, I: np.ndarray, sigma: float):
         """
@@ -180,35 +178,7 @@ class WISH_Sensor:
         :param d1: Sampling size of the field A0
         :param wv: Wavelength in m
         :param z : Propagation distance in metres
-        :return: A : Propagated field
-        """
-        k = 2*np.pi / wv
-        N = A0.shape[0]
-        x = cp.linspace(0, N - 1, N) - (N / 2) * cp.ones(N)
-        y = cp.linspace(0, N - 1, N) - (N / 2) * cp.ones(N)
-        d2 = wv * abs(z) / (N*d1)
-        X1, Y1 = d1 * cp.meshgrid(x, y)[0], d1 * cp.meshgrid(x, y)[1]
-        X2, Y2 = d2 * cp.meshgrid(x, y)[0], d2 * cp.meshgrid(x, y)[1]
-        R1 = cp.sqrt(X1 ** 2 + Y1 ** 2)
-        R2 = cp.sqrt(X2 ** 2 + Y2 ** 2)
-        D = 1 /(1j*wv*z)
-        Q1 = cp.exp(1j*(k/(2*z))*R1**2)
-        Q2 = cp.exp(1j*(k/(2*z))*R2**2)
-        if z >=0:
-            A =D * Q2 * (d1**2) * cp.fft.fftshift(cp.fft.fft2(cp.fft.ifftshift(A0 * Q1, axes=(0,1)), axes=(0,1)), axes=(0,1))
-        elif z<0:
-            A =D * Q2 * ((N*d1) ** 2) * cp.fft.fftshift(cp.fft.ifft2(cp.fft.ifftshift(A0 * Q1, axes=(0,1)), axes=(0,1)), axes=(0,1))
-
-        return A
-    @staticmethod
-    def frt_gpu_vec(A0: np.ndarray, d1: float, wv: float, z: float):
-        """
-        Implements propagation using Fresnel diffraction. Runs on a GPU using CuPy with a CUDA backend.
-        :param A0: Field to propagate
-        :param d1: Sampling size of the field A0
-        :param wv: Wavelength in m
-        :param z : Propagation distance in metres
-        :return: A : Propagated field
+        :return: A0 : Propagated field
         """
         k = 2 * np.pi / wv
         N = A0.shape[1]
@@ -219,17 +189,53 @@ class WISH_Sensor:
         X2, Y2 = d2 * cp.meshgrid(x, y)[0], d2 * cp.meshgrid(x, y)[1]
         R1 = cp.sqrt(X1 ** 2 + Y1 ** 2)
         R2 = cp.sqrt(X2 ** 2 + Y2 ** 2)
-        D = 1 / (1j * wv * z)
-        Q1 = cp.exp(1j * (k / (2 * z)) * R1 ** 2)
-        Q2 = cp.exp(1j * (k / (2 * z)) * R2 ** 2)
-        if z >= 0:
-            A = D * Q2 * (d1 ** 2) * cp.fft.fftshift(cp.fft.fft2(cp.fft.ifftshift(A0 * Q1, axes=(1, 2)), axes=(1, 2)),
-                                                     axes=(1, 2))
-        elif z < 0:
-            A = D * Q2 * ((N * d1) ** 2) * cp.fft.fftshift(
-                cp.fft.ifft2(cp.fft.ifftshift(A0 * Q1, axes=(1, 2)), axes=(1, 2)), axes=(1, 2))
-
-        return A
+        A0 = A0 * cp.exp(1j * (k / (2 * z)) * R1 ** 2)
+        if z > 0:
+            A0 = cp.fft.ifftshift(A0, axes=(0, 1))
+            A0 = cp.fft.fft2(A0, axes=(0, 1))
+            A0 = cp.fft.fftshift(A0, axes=(0, 1))
+            A0 = d1 ** 2 * A0
+        elif z <= 0:
+            A0 = cp.fft.ifftshift(A0, axes=(0, 1))
+            A0 = cp.fft.ifft2(A0, axes=(0, 1))
+            A0 = cp.fft.fftshift(A0, axes=(0, 1))
+            A0 = (N * d1) ** 2 * A0
+        A0 = A0 * cp.exp(1j * (k / (2 * z)) * R2 ** 2)
+        A0 = A0 * 1 / (1j * wv * z)
+        return A0
+    @staticmethod
+    def frt_gpu_vec(A0: np.ndarray, d1: float, wv: float, z: float):
+        """
+        Implements propagation using Fresnel diffraction. Runs on a GPU using CuPy with a CUDA backend.
+        :param A0: Field to propagate
+        :param d1: Sampling size of the field A0
+        :param wv: Wavelength in m
+        :param z : Propagation distance in metres
+        :return: A0 : Propagated field
+        """
+        k = 2 * np.pi / wv
+        N = A0.shape[1]
+        x = cp.linspace(0, N - 1, N) - (N / 2) * cp.ones(N)
+        y = cp.linspace(0, N - 1, N) - (N / 2) * cp.ones(N)
+        d2 = wv * abs(z) / (N * d1)
+        X1, Y1 = d1 * cp.meshgrid(x, y)[0], d1 * cp.meshgrid(x, y)[1]
+        X2, Y2 = d2 * cp.meshgrid(x, y)[0], d2 * cp.meshgrid(x, y)[1]
+        R1 = cp.sqrt(X1 ** 2 + Y1 ** 2)
+        R2 = cp.sqrt(X2 ** 2 + Y2 ** 2)
+        A0 = A0 * cp.exp(1j * (k / (2 * z)) * R1 ** 2)
+        if z > 0:
+            A0 = cp.fft.ifftshift(A0, axes=(1, 2))
+            A0 = cp.fft.fft2(A0, axes=(1, 2))
+            A0 = cp.fft.fftshift(A0, axes=(1, 2))
+            A0 = d1**2 * A0
+        elif z <= 0:
+            A0 = cp.fft.ifftshift(A0, axes=(1, 2))
+            A0 = cp.fft.ifft2(A0, axes=(1, 2))
+            A0 = cp.fft.fftshift(A0, axes=(1, 2))
+            A0 = (N * d1) ** 2 * A0
+        A0 = A0 * cp.exp(1j * (k / (2 * z)) * R2 ** 2)
+        A0 = A0 * 1 / (1j * wv * z)
+        return A0
     @staticmethod
     def frt_gpu_s(A0: np.ndarray, d1: float, wv: float, z: float):
         """
@@ -238,16 +244,22 @@ class WISH_Sensor:
         :param d1: Sampling size of the field A0
         :param wv: Wavelength in m
         :param z : Propagation distance in metres
-        :return: A : Propagated field
+        :return: A0 : Propagated field
         """
-        N = A0.shape[0]
-        D = 1 /(1j*wv*z)
-        if z >=0:
-            A =cp.multiply(D*(d1**2), cp.fft.fftshift(cp.fft.fft2(cp.fft.ifftshift(A0, axes=(0,1)), axes=(0,1)), axes=(0,1)))
-        elif z<0:
-            A =cp.multiply(D * ((N*d1) ** 2), cp.fft.fftshift(cp.fft.ifft2(cp.fft.ifftshift(A0, axes=(0,1)), axes=(0,1)), axes=(0,1)))
+        N = A0.shape[1]
+        if z > 0:
+            A0 = cp.fft.ifftshift(A0, axes=(0, 1))
+            A0 = cp.fft.fft2(A0, axes=(0, 1))
+            A0 = cp.fft.fftshift(A0, axes=(0, 1))
+            A0 = d1 ** 2 * A0
+        elif z <= 0:
+            A0 = cp.fft.ifftshift(A0, axes=(0, 1))
+            A0 = cp.fft.ifft2(A0, axes=(0, 1))
+            A0 = cp.fft.fftshift(A0, axes=(0, 1))
+            A0 = (N * d1) ** 2 * A0
+        A0 = A0 * 1 / (1j * wv * z)
+        return A0
 
-        return A
     @staticmethod
     def frt_gpu_vec_s(A0: np.ndarray, d1: float, wv: float, z: float, plan=None):
         """
@@ -259,27 +271,33 @@ class WISH_Sensor:
         :return: A : Propagated field
         """
         N = A0.shape[1]
-        D = 1 / (1j * wv * abs(z))
-        if z >= 0:
-            if plan==None:
-                A = cp.multiply(D * (d1 ** 2),
-                            cp.fft.fftshift(cp.fft.fft2(cp.fft.ifftshift(A0, axes=(1, 2)), axes=(1, 2)), axes=(1, 2)))
+        if z > 0:
+            if plan == None:
+                A0 = cp.fft.ifftshift(A0, axes=(1,2))
+                A0 = cp.fft.fft2(A0, axes=(1,2))
+                A0 = cp.fft.fftshift(A0, axes=(1,2))
+                A0 = d1 ** 2 * A0
+            else:
+                with plan :
+                    A0 = cp.fft.ifftshift(A0, axes=(1, 2))
+                    A0 = cp.fft.fft2(A0, axes=(1, 2))
+                    A0 = cp.fft.fftshift(A0, axes=(1, 2))
+                    A0 = d1 ** 2 * A0
+        elif z <= 0:
+            if plan == None:
+                A0 = cp.fft.ifftshift(A0, axes=(1,2))
+                A0 = cp.fft.ifft2(A0, axes=(1,2))
+                A0 = cp.fft.fftshift(A0, axes=(1,2))
+                A0 = (N * d1) ** 2 * A0
             else :
-                with plan:
-                    A = cp.multiply(D * (d1 ** 2),
-                                cp.fft.fftshift(cp.fft.fft2(cp.fft.ifftshift(A0, axes=(1, 2)), axes=(1, 2)),
-                                                axes=(1, 2)))
-        elif z < 0:
-            if plan==None:
-                A = cp.multiply(D * ((N * d1) ** 2),
-                            cp.fft.fftshift(cp.fft.ifft2(cp.fft.ifftshift(A0, axes=(1, 2)), axes=(1, 2)), axes=(1, 2)))
-            else :
-                with plan:
-                    A = cp.multiply(D * ((N * d1) ** 2),
-                                cp.fft.fftshift(cp.fft.ifft2(cp.fft.ifftshift(A0, axes=(1, 2)), axes=(1, 2)),
-                                                axes=(1, 2)))
+                with plan :
+                    A0 = cp.fft.ifftshift(A0, axes=(1, 2))
+                    A0 = cp.fft.ifft2(A0, axes=(1, 2))
+                    A0 = cp.fft.fftshift(A0, axes=(1, 2))
+                    A0 = (N * d1) ** 2 * A0
+        A0 = A0 * 1 / (1j * wv * z)
+        return A0
 
-        return A
     def u4Tou3(self, u4: np.ndarray, delta4: float, z3: float):
         """
         Propagates back a field from the sensor plane to the SLM plane
@@ -305,15 +323,15 @@ class WISH_Sensor:
         if slm.dtype == 'uint8':
             slm = slm.astype(float)/256.
         if slm.ndim == 3:
-            #slm2 = slm[:, 421 : 1501, 0:N_batch] #takes a 1080x1080 square of the SLM
-            slm2 = slm[:, :, 0:N_batch]
+            slm = slm[:, 124:1148, :] #takes a 1024x1024 square of the SLM
             slm3 = np.empty((N,N,N_batch))
             #scale SLM slices to the right size
             for i in range(N_batch):
-                slm1 = cp.asnumpy(zoom(cp.asarray(slm2[:,:,i]), delta_SLM / delta3))
+                slm1 = cp.asnumpy(zoom(cp.asarray(slm[:,:,i]), delta_SLM / delta3, order=0))
                 if slm1.shape[0]>N or slm1.shape[1]>N:
                     #print("\rWARNING : The propagation distance must be too small and the field on the sensor is cropped !")
-                    slm3[:,:,i]=self.crop_center(slm1, N, N)
+                    slm1=self.crop_center(slm1, N, N)
+                    slm3[:, :, i]=slm1
                 else :
                     slm1 = np.pad(slm1, (int(np.ceil((N - slm1.shape[0]) / 2)), \
                                          int(np.ceil((N - slm1.shape[1]) / 2))))
@@ -333,8 +351,7 @@ class WISH_Sensor:
                 print("Wrong type specified : type can be 'amp' or 'phi' ! ")
                 raise
         elif slm.ndim == 2:
-            #slm2 = slm[:, 421:1501]
-            slm2 = slm
+            slm2 = slm[:, 448:1472]
             slm3 = np.empty((N, N))
             # could replace with my modulate function
             # scale SLM slices to the right size
@@ -391,6 +408,7 @@ class WISH_Sensor:
             w = noise * cp.random.standard_normal((N, N,), dtype=float)
             ya = cp.abs(a4)**2 + w
             ya[ya<0]=0
+            ya = shift(ya, (1*cp.random.standard_normal(1, dtype=float),1*cp.random.standard_normal(1, dtype=float)))
             ims[:,:, i] = cp.asnumpy(ya)
             del a31, a4, ya
         return ims
@@ -403,10 +421,10 @@ class WISH_Sensor:
         """
         if ims.dtype=='uint8':
             ims=(ims/256).astype(np.float32)
-        y0 = np.real(np.sqrt(ims)); # change from intensity to magnitude
-        y0 = np.pad(y0, (round((N - y0.shape[0]) / 2), round((N - y0.shape[1]) / 2)))
-        if y0.shape[0] > N:
-            y0=y0[0:N,0:N,:]
+        y0 = np.real(np.sqrt(ims)) # change from intensity to magnitude
+        #y0 = np.pad(y0, (round((N - y0.shape[0]) / 2), round((N - y0.shape[1]) / 2)))
+        #if y0.shape[0] > N:
+        #    y0=y0[0:N,0:N,:]
         return y0.astype(np.float32)
     def WISHrun(self, y0: np.ndarray, SLM: np.ndarray, delta3: float, delta4: float):
         """
