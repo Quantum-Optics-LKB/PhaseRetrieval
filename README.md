@@ -21,12 +21,8 @@ Also feel free to declare issues if you see some, the code is still far from ide
 
 **PYTHON LIBS AND DEPENDENCIES** :  
 
-In order to simulate light propagation, I use this library : 
-
-https://github.com/opticspy/lightpipes 
-
-It has already quite a lot of built in optical elements. 
-Dependencies are [here](setup.py)
+The computation are mainly carried out on GPU using CUDA. For the Python front-end, Cupy is used as a drop-in replacement to run a Numpy-like API. 
+https://cupy.dev/
 
 **REFERENCES** : 
 
