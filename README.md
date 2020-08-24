@@ -10,7 +10,7 @@ A small holographic pattern generator is available [here](ComputeCGH/compute_cgh
 
 **WISH**
 
-In the [WISH](WISH/) folder you will find our python implementation of Yicheng Wu's Matlab code allowing replication of the results of their LSA paper. In the [dev](dev/) folder you will find the development version of our tailored version of this code. It includes features developed for the CGH generator such as automatic variable padding for the Gerchberg-Saxton loop.
+In the [WISH](WISH/) folder you will find our python implementation of Yicheng Wu's Matlab code allowing replication of the results of their LSA paper. In the [dev](dev/) folder you will find the development version of our tailored version of this code. The code has a main class `WISH_lkb.py` that handles the computations. Its workflow is described in the following figure ![workflow](images/wish_loop.png). The simulations can be carried out using `WISH_simulation.py` and the actual measurements using `WISH_measurement.py`. Note that the latter is designed to run with a Point Grey camera, and an SLM or DMD that are handled as secondary screens. 
 
 **CONTRIBUTION**
 
