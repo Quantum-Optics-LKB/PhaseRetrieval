@@ -23,8 +23,8 @@ Also feel free to declare issues if you see some, the code is still far from ide
 
 **PYTHON LIBS AND DEPENDENCIES** :  
 
-The computation are mainly carried out on GPU using CUDA. For the Python front-end, Cupy is used as a drop-in replacement to run a Numpy-like API. 
-https://cupy.dev/
+The computation are mainly carried out on GPU using CUDA. For the Python front-end, [Cupy](https://cupy.dev/) is used as a drop-in replacement to run a Numpy-like API. Data acquisition is handled by an OpenCV like interface for Point Grey cameras : [EasyPySpin](https://github.com/elerac/EasyPySpin) that relies on the official Python API from FLIR, [PySpin](https://www.flir.fr/products/spinnaker-sdk/). Control of the SLM (or DMD) is handled using [PySLM](https://github.com/wavefrontshaping/slmPy).
+
 
 **REFERENCES** : 
 
