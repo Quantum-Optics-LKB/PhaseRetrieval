@@ -112,7 +112,7 @@ class WISH_Sensor:
         h, w = int(shape[0] / pxsize), int(shape[1] / pxsize)
         M = (1/256)*cp.random.random_integers(0,255,(h, w))  # random matrix between [0 , 1]
         M = M.astype(np.float32)
-        phi_m = cp.asnumpy(zoom(M, (shape[0]/M.shape[0], shape[1]/M.shape[1]), order=0))
+        phi_m = cp.asnumpy(zoom(M, (shape[0]/M.shape[0], shape[1]/M.shape[1])))
         return phi_m
     @staticmethod
     def modulate_binary(shape: tuple, pxsize: int = 10):

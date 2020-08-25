@@ -55,7 +55,7 @@ def lens(f, b):
     phi/=2*np.pi
     out = (b*phi).astype('uint8')
     return out
-L = lens(48.9e-3, 206)
+L = lens(43.7e-3, 206)
 slm = slmpy.SLMdisplay(isImageLock=True)
 #cam = EasyPySpin.VideoCapture(0)
 G=grating(0,206,20)
@@ -63,7 +63,7 @@ C = circle(100, 20, 255)
 slm.updateArray(C)
 time.sleep(200000)
 #Displays lenses
-#for f in np.linspace(70e-3,75e-3, 20):
+#for f in np.linspace(43e-3,47e-3, 20):
 #    print(f)
 #    L=lens(f, 206)
 #    slm.updateArray(L)
