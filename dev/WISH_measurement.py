@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-Created by Tangui Aladjidi at 28/05/2020
+Created by Tangui Aladjidi on the 28/05/2020
 """
 
 import numpy as np
@@ -11,6 +11,7 @@ import time
 import cupy as cp
 from scipy.ndimage import zoom
 from WISH_lkb import WISH_Sensor
+from PIL import Image
 import slmpy
 import cv2
 import EasyPySpin
@@ -38,6 +39,8 @@ def main():
     T0 = time.time()
     #instantiate WISH sensor reading the conf file
     Sensor = WISH_Sensor("wish_3.conf")
+    #load SLM flatness correction
+    corr = Image.open("/home/tangui/Documents/SLM/deformation_correction_pattern/CAL_LSH0802200_780nm.bmp")
     wvl = Sensor.wavelength
     z3 = Sensor.z
     delta4 = Sensor.d_CAM
@@ -74,25 +77,28 @@ def main():
                 ims[:,:,2 * i + 1 + obs]= zoom(cv2.flip(frame, 0), zoom_factor)
     elif slm_type=='SLM':
         resX, resY = 1272, 1024
-        angle = 0.228 #to correct for misalignment btwn camera and SLM
+        angle = 0 #to correct for misalignment btwn camera and SLM
         slm_display = slmpy.SLMdisplay(isImageLock = True)
         slm = np.ones((resY, resX, Sensor.N_mod))
         slm_display.updateArray(slm[:, :, 0].astype('uint8'))
+        ret, frame = Cam.read()
+        frame = cv2.flip(frame, 0)
+        mask = frame>Sensor.threshold*np.max(frame)
         for i in range(0,Sensor.N_mod):
             slm[:,:,i]=Sensor.modulate((resY,resX), pxsize=6)
-            #slm[:,:,i]=Sensor.modulate_binary((resY,resX), pxsize=10)
+            #slm[:,:,i]=Sensor.modulate_binary((resY,resX), pxsize=6)
             print(f"Displaying {i + 1} th SLM pattern")
-            slm_display.updateArray((205*slm[:,:,i]).astype('uint8'))
+            slm_display.updateArray((205*((1/255)*(256*slm[:,:,i]-corr)%256)).astype('uint8'))
             time.sleep(1)
             for obs in range(Sensor.N_os):
                 ret, frame = Cam.read()
                 #frame = cv2.warpAffine(frame, T, frame.shape)
                 frame = cv2.flip(frame, 0)
-                frame = cv2.rotate(frame, cv2.ROTATE_90_COUNTERCLOCKWISE)
+                #frame = cv2.rotate(frame, cv2.ROTATE_90_CLOCKWISE)
                 frame = ndimage.rotate(frame, -angle, reshape=False)
                 #ims[:,:,Sensor.N_os*i+obs]= zoom(frame, zoom_factor)
                 print(f"Recording image nbr : {Sensor.N_os*i+obs}")
-                ims[:,:,Sensor.N_os*i+obs]= frame
+                ims[:,:,Sensor.N_os*i+obs]= frame*mask
         slm_display.close()
         Cam.release()
     if slm_type =='DMD':
@@ -122,7 +128,7 @@ def main():
     np.save("u4_est.npy", u4_est)
     T_run=time.time()-T_run_0
     #Backpropagation distance for the 2nd plot
-    z2 = 185e-3
+    z2 = 166e-3
     u2_est = Sensor.frt_gpu(u4_est, Sensor.d_CAM, Sensor.wavelength, -z2)
     u2_est = cp.asnumpy(u2_est)
     u3_est = cp.asnumpy(u3_est)

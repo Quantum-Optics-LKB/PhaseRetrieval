@@ -2,6 +2,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import EasyPySpin
 import slmpy
+from PIL import Image
 import time
 import cv2
 
@@ -29,7 +30,7 @@ def circle(R, width, value):
     :param value : Value inside the circle
     :return: The circle as a 2d array
     """
-    x = 636 - np.linspace(0,1279, 1280)
+    x = 636 - np.linspace(0,1271, 1272)
     y = 512 - np.linspace(0,1023, 1024)
     X,Y = np.meshgrid(x,y)
     out = np.zeros(X.shape, dtype='uint8')
@@ -45,7 +46,7 @@ def lens(f, b):
     :param b : bit value (0 to 255)
     :return: the phase mask corresponding to the lens
     """
-    x = 12.5e-6*(636 - np.linspace(0, 1279, 1280))
+    x = 12.5e-6*(636 - np.linspace(0, 1271, 1272))
     y = 12.5e-6*(512 - np.linspace(0, 1023, 1024))
     X, Y = np.meshgrid(x, y)
     R = np.sqrt(X**2 + Y**2)
@@ -59,15 +60,21 @@ L = lens(43.7e-3, 206)
 slm = slmpy.SLMdisplay(isImageLock=True)
 #cam = EasyPySpin.VideoCapture(0)
 G=grating(0,206,20)
-C = circle(100, 20, 255)
-slm.updateArray(C)
+C = circle(100, 20, 100)
+#load SLM flatness correction
+corr = np.array(Image.open("/home/tangui/Documents/SLM/deformation_correction_pattern/CAL_LSH0802200_780nm.bmp"))
+#plt.imshow(((206/255)*(C+corr)%256).astype("uint8"))
+#plt.show()
+
+slm.updateArray(((206/255)*(C-corr)%256).astype("uint8"))
+#slm.updateArray(C)
 time.sleep(200000)
 #Displays lenses
-#for f in np.linspace(43e-3,47e-3, 20):
-#    print(f)
-#    L=lens(f, 206)
-#    slm.updateArray(L)
-#    time.sleep(0.25)
+for f in np.linspace(60e-3,120e-3, 20):
+    print(f)
+    L=lens(f, 206)
+    slm.updateArray(((206/255)*(L-corr)%256).astype("uint8"))
+    time.sleep(0.25)
 #for b in np.linspace(180,255, 60, dtype='uint8'):
 #    print(b)
     #G=grating(0,b,20)
@@ -78,8 +85,9 @@ time.sleep(200000)
 #while True:
 #    value = input("Pixel value ? ")
 #    G = grating(0, value, 20)
-    #C = circle(100, 20, value)
+#    C = circle(100, 20, value)
 #    slm.updateArray(G)
+#    slm.updateArray(((206 / 255) * (C + corr) % 256).astype("uint8"))
 #ret, frame = cam.read()
 #frame = cv2.flip(frame, 0)
 #frame = cv2.rotate(frame, cv2.ROTATE_90_CLOCKWISE)

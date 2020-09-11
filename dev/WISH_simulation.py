@@ -33,9 +33,9 @@ def main():
     im = np.array(Image.open('intensities/I0_256_full.bmp'))[:,:,0]
     #im = np.load('measurements/y0_32.npy')[:,:,0]**2
     phi0 = np.array(Image.open('phases/harambe_256_full.bmp'))[:,:,0]
-    im = cp.asnumpy(zoom(cp.asarray(im), 4))
-    phi0 = cp.asnumpy(zoom(cp.asarray(phi0), 4))
-    padding=512
+    im = cp.asnumpy(zoom(cp.asarray(im), 1))
+    phi0 = cp.asnumpy(zoom(cp.asarray(phi0), 1))
+    padding=32
     u40 = np.pad(im.astype(np.float32)/256, (padding, padding)) #protection band
     #u40 = np.pad(im.astype(np.float32), (padding, padding)) #protection band
     u40 = Sensor.gaussian_profile(u40, 0.5)
@@ -58,7 +58,7 @@ def main():
     elif slm_type=='SLM':
         slm = np.ones((1024, 1272, Sensor.N_mod))
         for i in range(0,Sensor.N_mod):
-            slm[:,:,i]=Sensor.modulate((1024,1272), pxsize=6)
+            slm[:,:,i]=Sensor.modulate((1024,1272), pxsize=1)
     if slm_type =='DMD':
         SLM = Sensor.process_SLM(slm, N, delta3, type="amp")
         fig = plt.figure(1)
@@ -148,7 +148,7 @@ def main():
     ax1.set_title('Initial amplitude', fontsize=20)
     im2=ax4.imshow(np.angle(u40), cmap='twilight',vmin=-np.pi, vmax=np.pi)
     ax4.set_title('Initial phase', fontsize=20)
-    im3=ax2.imshow(np.abs(u4_est), cmap='viridis', vmin=0, vmax=1)
+    im3=ax2.imshow(np.abs(u3_est), cmap='viridis', vmin=0, vmax=1)
     ax2.set_title('Amplitude estimation', fontsize=20)
     im5=ax5.imshow(np.angle(u4_est), cmap='twilight', vmin=-np.pi, vmax=np.pi)
     ax5.text(8, 18, f"RMS = {'{:.3f}%'.format(100 * phase_rms)}", bbox={'facecolor': 'white', 'pad': 4})
