@@ -353,7 +353,6 @@ class WISH_Sensor:
         elif slm.ndim == 2:
             slm2 = slm[:, 448:1472]
             slm3 = np.empty((N, N))
-            # could replace with my modulate function
             # scale SLM slices to the right size
             slm1 = zoom(slm2, delta_SLM / delta3)
             slm1 = np.pad(slm1, (int(np.ceil((N - slm1.shape[0]) / 2)), \
