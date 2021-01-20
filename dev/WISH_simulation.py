@@ -56,7 +56,7 @@ def main():
             slm[:, :, 2 * i] = Sensor.modulate((1080, 1920), pxsize=2)
             slm[:, :, 2 * i + 1] = np.ones((1080, 1920)) - slm[:, :, 2 * i]
     elif slm_type=='SLM':
-        slm = np.ones((512, 512, Sensor.N_mod))
+        slm = np.ones((1152, 1920, Sensor.N_mod))
         for i in range(0, Sensor.N_mod):
             slm[:,:,i]=Sensor.modulate((slm.shape[0], slm.shape[1]), pxsize=1)
     if slm_type =='DMD':

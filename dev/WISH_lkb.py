@@ -321,7 +321,15 @@ class WISH_Sensor:
         if slm.dtype == 'uint8':
             slm = slm.astype(float)/256.
         if slm.ndim == 3:
-            slm = slm[:, 124:1148, :] #takes a 1024x1024 square of the SLM
+            if slm.shape[0] != slm.shape[1]:
+                if slm.shape[0] > slm.shape[1]:
+                    small = slm.shape[1]
+                    big = slm.shape[0]
+                    slm = slm[int((big-small)/2):big-int((big-small)/2), :, :]  # takes a 1024x1024 square of the SLM
+                elif slm.shape[1] > slm.shape[0]:
+                    small = slm.shape[0]
+                    big = slm.shape[1]
+                    slm = slm[:, int((big-small)/2):big-int((big-small)/2), :]  # takes a 1024x1024 square of the SLM
             slm3 = np.empty((N,N,N_batch))
             #scale SLM slices to the right size
             for i in range(N_batch):
