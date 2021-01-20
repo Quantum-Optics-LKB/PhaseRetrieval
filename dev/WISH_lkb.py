@@ -1,15 +1,13 @@
 # -*- coding: utf-8 -*-
 """
 @author : Tangui ALADJIDI
-Update of the Matlab code from Yicheng WU
+Based on the Matlab code from Yicheng WU
 """
 
 
 import numpy as np
 import matplotlib.pyplot as plt
-from time import time
 from mpl_toolkits.axes_grid1 import make_axes_locatable
-import time
 import sys
 import configparser
 import cupy as cp
@@ -20,8 +18,8 @@ from cupyx.scipy import fftpack
 
 """
 IMPORTANT NOTE : If the cupy module won't work, check that you have the right version of CuPy installed for you version
-of CUDA Toolkit : https://docs-cupy.chainer.org/en/stable/install.html  
-If you are sure of you CuPy install, then it is possible that your nvidia kernel module froze or that some program 
+of CUDA Toolkit : https://docs-cupy.chainer.org/en/stable/install.html
+If you are sure of you CuPy install, then it is possible that your nvidia kernel module froze or that some program
 bars the access to CuPy. In this case reload your Nvidia module using these commands (in Unix) :
     sudo rmmod nvidia_uvm
     sudo modprobe nvidia_uvm
@@ -564,5 +562,3 @@ class WISH_Sensor:
                     break
         u4_est = self.frt_gpu_s(u3, delta3, self.wavelength, z3) * Q  # propagate solution to sensor plane
         return u3, u4_est, idx_converge
-
-
