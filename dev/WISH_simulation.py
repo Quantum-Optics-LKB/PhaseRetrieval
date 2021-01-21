@@ -25,12 +25,15 @@ def main():
     im = np.array(Image.open('intensities/I0_256_full.bmp'))[:, :, 0]
     # im = np.load('measurements/y0_32.npy')[:,:,0]**2
     phi0 = np.array(Image.open('phases/harambe_256_full.bmp'))[:, :, 0]
-    im = cp.asnumpy(zoom(cp.asarray(im), [8.5, 15]))
-    phi0 = cp.asnumpy(zoom(cp.asarray(phi0), [8.5, 15]))
-    padding = 32
-    u40 = np.pad(im.astype(np.float32)/256, (padding, padding))
+    im = cp.asnumpy(zoom(cp.asarray(im), [8.5, 8.5]))
+    phi0 = cp.asnumpy(zoom(cp.asarray(phi0), [8.5, 8.5]))
+    paddingy = 32
+    paddingx = int((3904-(8.5*256))/2)
+    u40 = np.pad(im.astype(np.float32)/256, ((paddingy, paddingy),
+                                             (paddingx, paddingx)))
     u40 = Sensor.gaussian_profile(u40, 0.5)
-    phi0 = np.pad(phi0.astype(np.float32)/256, (padding, padding))
+    phi0 = np.pad(phi0.astype(np.float32)/256, ((paddingy, paddingy),
+                                                (paddingx, paddingx)))
     u40 = u40 * (np.exp(1j * phi0 * 2 * np.pi))
     u40 = u40.astype(np.complex64)
     Nx = u40.shape[1]
@@ -106,12 +109,15 @@ def main():
 
     # Recon initilization
     T_run_0 = time.time()
-    u3_est, u4_est, idx_converge = Sensor.WISHrun_vec(y0, SLM, delta3x, delta3y, delta4x, delta4y)
+    u3_est, u4_est, idx_converge = Sensor.WISHrun_vec(
+                            y0, SLM, delta3x, delta3y, delta4x, delta4y)
     T_run = time.time()-T_run_0
     u41 = cp.asarray(u40)
-    phase_RMS = (1 / (2 * np.pi * (np.sqrt(Nx*Ny) - 2 * padding))) * cp.asarray(
-        [cp.linalg.norm((cp.angle(u41) - cp.angle(cp.exp(1j * th) * u4_est)) * (cp.abs(u41) > 0)) for th in
-         cp.linspace(-np.pi, np.pi, 512)])
+    phase_RMS = (1 / (2 * np.pi * (np.sqrt((Nx-2*paddingx)*(Ny-2*paddingy)))))\
+        * cp.asarray(
+        [cp.linalg.norm((cp.angle(u41) - cp.angle(cp.exp(1j * th) * u4_est)) *
+                        (cp.abs(u41) > 0)) for th in cp.linspace(
+                        -np.pi, np.pi, 512)])
     phase_rms = cp.asnumpy(cp.min(phase_RMS))
     u3_est = cp.asnumpy(u3_est)
     u4_est = cp.asnumpy(u4_est)
