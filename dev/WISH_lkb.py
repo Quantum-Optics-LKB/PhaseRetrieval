@@ -105,7 +105,14 @@ class WISH_Sensor:
             plt.show()
         return mask_sr, k, m
 
-    def crop_center(self, img, cropx, cropy):
+    def crop_center(self, img: np.ndarray, cropx: int, cropy: int):
+        """
+        A function to crop around the center of an array
+        :param img: Array to crop
+        :param cropx: Size along x direction of cropped array
+        :param cropy: Size along y direction of cropped array
+        :return: cropped array
+        """
         y, x = img.shape
         startx = x // 2 - (cropx // 2)
         starty = y // 2 - (cropy // 2)
@@ -382,13 +389,16 @@ class WISH_Sensor:
                 slm1 = cp.asnumpy(
                         zoom(cp.asarray(slm[:, :, i]),
                              [delta_SLM/delta3y, delta_SLM/delta3x], order=0))
-                if slm1.shape[0] > Ny or slm1.shape[1] > Nx:
+                if slm1.shape[0] > Ny and slm1.shape[1] <= Nx:
+                    slm1 = self.crop_center(slm1, slm1.shape[1], Ny)
+                elif slm1.shape[0] <= Ny and slm1.shape[1] > Nx:
+                    slm1 = self.crop_center(slm1, Nx, slm1.shape[0])
+                elif slm1.shape[0] > Ny and slm1.shape[1] > Nx:
                     slm1 = self.crop_center(slm1, Nx, Ny)
-                    slm3[:, :, i] = slm1
-                else:
-                    slm1 = np.pad(slm1,
-                                  (int(np.ceil((Ny - slm1.shape[0]) / 2)),
-                                   int(np.ceil((Nx - slm1.shape[1]) / 2))))
+                if slm1.shape[0] < Ny or slm1.shape[1] < Nx:
+                    pady = int(np.ceil((Ny - slm1.shape[0]) / 2))
+                    padx = int(np.ceil((Nx - slm1.shape[1]) / 2))
+                    slm1 = np.pad(slm1, ((pady, pady), (padx, padx)))
                 slm3[:, :, i] = slm1
             if type == "phi":
                 SLM = np.exp(1j * 2 * np.pi * slm3).astype(np.complex64)
