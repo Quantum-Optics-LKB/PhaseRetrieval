@@ -25,10 +25,10 @@ def main():
     im = np.array(Image.open('intensities/I0_256_full.bmp'))[:, :, 0]
     # im = np.load('measurements/y0_32.npy')[:,:,0]**2
     phi0 = np.array(Image.open('phases/harambe_256_full.bmp'))[:, :, 0]
-    im = cp.asnumpy(zoom(cp.asarray(im), [8.5, 8.5]))
-    phi0 = cp.asnumpy(zoom(cp.asarray(phi0), [8.5, 8.5]))
-    paddingy = 32
-    paddingx = int((3904-(8.5*256))/2)
+    im = cp.asnumpy(zoom(cp.asarray(im), [8.25, 8.25]))
+    phi0 = cp.asnumpy(zoom(cp.asarray(phi0), [8.25, 8.25]))
+    paddingy = int((2160-(8.25*256))/2)
+    paddingx = int((3840-(8.25*256))/2)
     u40 = np.pad(im.astype(np.float32)/256, ((paddingy, paddingy),
                                              (paddingx, paddingx)))
     u40 = Sensor.gaussian_profile(u40, 0.5)
@@ -40,6 +40,17 @@ def main():
     Ny = u40.shape[0]
     delta3x = wvl * z3 / (Nx * delta4x)
     delta3y = wvl * z3 / (Ny * delta4y)
+    # Z = np.linspace(z3-5e-5, z3+5e-5, 40000)
+    # D3x = wvl * Z / (Nx * delta4x)
+    # D3y = wvl * Z / (Ny * delta4y)
+    # X = 1920*Sensor.d_SLM/D3x
+    # Y = 1080*Sensor.d_SLM/D3y
+    # X = X % 4
+    # Y = Y % 4
+    # diff = np.abs(X-Y)
+    # plt.plot(Z, diff)
+    # plt.show()
+    # print(f"Optimal distance is {Z[diff == np.min(diff)][0]*1e3} mm")
     u30 = Sensor.u4Tou3(u40, delta4x, delta4y, z3)
     # forward prop to the sensor plane with SLM modulation
     print('Generating simulation data images ...')
@@ -54,9 +65,10 @@ def main():
     elif slm_type == 'SLM':
         slm = np.ones((1080, 1920, Sensor.N_mod))
         for i in range(0, Sensor.N_mod):
-            slm[:, :, i] = Sensor.modulate((slm.shape[0], slm.shape[1]), pxsize=1)
+            slm[:, :, i] = Sensor.modulate((slm.shape[0], slm.shape[1]),
+                                           pxsize=1)
     if slm_type == 'DMD':
-        SLM = Sensor.process_SLM(slm, Nx, Ny, delta3x, delta3y, type="amp")
+        SLM = Sensor.process_SLM(slm, Nx, Ny, delta4x, delta4y, type="amp")
         fig = plt.figure(1)
         ax1 = fig.add_subplot(121)
         ax2 = fig.add_subplot(122)
