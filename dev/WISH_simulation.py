@@ -40,17 +40,6 @@ def main():
     Ny = u40.shape[0]
     delta3x = wvl * z3 / (Nx * delta4x)
     delta3y = wvl * z3 / (Ny * delta4y)
-    # Z = np.linspace(z3-5e-5, z3+5e-5, 40000)
-    # D3x = wvl * Z / (Nx * delta4x)
-    # D3y = wvl * Z / (Ny * delta4y)
-    # X = 1920*Sensor.d_SLM/D3x
-    # Y = 1080*Sensor.d_SLM/D3y
-    # X = X % 4
-    # Y = Y % 4
-    # diff = np.abs(X-Y)
-    # plt.plot(Z, diff)
-    # plt.show()
-    # print(f"Optimal distance is {Z[diff == np.min(diff)][0]*1e3} mm")
     u30 = Sensor.u4Tou3(u40, delta4x, delta4y, z3)
     # forward prop to the sensor plane with SLM modulation
     print('Generating simulation data images ...')

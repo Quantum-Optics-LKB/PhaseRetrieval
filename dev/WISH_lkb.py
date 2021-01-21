@@ -387,33 +387,33 @@ class WISH_Sensor:
         # check if SLM can be centered in the computational window
         Nxslm = slm.shape[1]
         Nyslm = slm.shape[0]
-        cdx = (np.round(Nxslm*delta_SLM/delta3x) % 4) != 0
-        cdy = (np.round(Nyslm*delta_SLM/delta3y) % 4) != 0
+        cdx = (np.round(Nxslm*delta_SLM/delta3x) % 2) != 0
+        cdy = (np.round(Nyslm*delta_SLM/delta3y) % 2) != 0
         if cdx or cdy:
-            Z = np.linspace(self.z-5e-5, self.z+5e-5, 40000)
+            Z = np.linspace(self.z-2e-5, self.z+2e-5, int(1e2))
             D3x = self.wavelength * Z / (Nx * self.d_CAM)
             D3y = self.wavelength * Z / (Ny * self.d_CAM)
-            X = Nxslm*self.d_SLM/D3x
-            Y = Nyslm*self.d_SLM/D3y
-            X = X % 4
-            Y = Y % 4
-            diff = np.abs(X-Y)
+            X = np.round(Nxslm*self.d_SLM/D3x)
+            Y = np.round(Nyslm*self.d_SLM/D3y)
+            X = X % 2
+            Y = Y % 2
+            diff = X+Y
             z_corr = Z[diff == np.min(diff)][0]
             print("WARNING : Propagation is such that the SLM cannot be" +
-                  " centered in the computational window. Distance will be set"
-                  f" to closest matching distance z = {z_corr*1e3} mm.")
+                  " centered in the computational window. Distance will be set" +
+                  f" to closest matching distance z = {np.round(z_corr*1e3, decimals=2)} mm.")
             print("\nPlease adjust propagation distance or continue.")
             cont = None
             while cont is None:
                 cont = input("\nContinue ? [y/n]")
                 if cont == 'y':
                     self.z = z_corr
-                    delta3x = self.wavelength * self.z / (Nx * delta4x)
-                    delta3y = self.wavelength * self.z / (Ny * delta4y)
                 elif cont == 'n':
                     exit()
                 else:
                     cont = None
+        delta3x = self.wavelength * self.z / (Nx * delta4x)
+        delta3y = self.wavelength * self.z / (Ny * delta4y)
         if slm.ndim == 3:
             slm3 = np.empty((Ny, Nx, N_batch))
             # scale SLM slices to the right size
