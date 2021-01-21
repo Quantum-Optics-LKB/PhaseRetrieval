@@ -408,6 +408,8 @@ class WISH_Sensor:
                 cont = input("\nContinue ? [y/n]")
                 if cont == 'y':
                     self.z = z_corr
+                    delta3x = self.wavelength * self.z / (Nx * delta4x)
+                    delta3y = self.wavelength * self.z / (Ny * delta4y)
                 elif cont == 'n':
                     exit()
                 else:
