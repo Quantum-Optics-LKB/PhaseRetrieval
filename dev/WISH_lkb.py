@@ -146,7 +146,8 @@ class WISH_Sensor:
         # random intensity mask
         M = cp.random.choice(cp.asarray([0, 0.5]), (h, w))
         phi_m = cp.asnumpy(
-                zoom(M, (shape[0] / M.shape[0], shape[1] / M.shape[1])))
+                zoom(M, (shape[0] / M.shape[0], shape[1] / M.shape[1]),
+                     order=0))
         return phi_m
 
     def gaussian_profile(self, I: np.ndarray, sigma: float):
