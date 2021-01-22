@@ -400,9 +400,11 @@ class WISH_Sensor:
             Y = Y % 2
             diff = X+Y
             z_corr = Z[diff == np.min(diff)][0]
-            print("WARNING : Propagation is such that the SLM cannot be" +
-                  " centered in the computational window. Distance will be set" +
-                  f" to closest matching distance z = {np.round(z_corr*1e3, decimals=2)} mm.")
+            print(
+                "WARNING : Propagation is such that the SLM cannot be" +
+                " centered in the computational window. Distance will be set" +
+                " to closest matching distance" +
+                f" z = {np.round(z_corr*1e3, decimals=2)} mm.")
             print("\nPlease adjust propagation distance or continue.")
             cont = None
             while cont is None:
