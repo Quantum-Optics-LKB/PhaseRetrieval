@@ -500,8 +500,8 @@ class WISH_Sensor:
             w = noise * cp.random.standard_normal((Ny, Nx,), dtype=float)
             ya = cp.abs(a4)**2 + w
             ya[ya < 0] = 0
-            # ya = shift(ya, (1*cp.random.standard_normal(1, dtype=float),
-            # 1*cp.random.standard_normal(1, dtype=float)))
+            ya = shift(ya, (1*cp.random.standard_normal(1, dtype=float),
+                       1*cp.random.standard_normal(1, dtype=float)))
             ims[:, :, i] = cp.asnumpy(ya)
             del a31, a4, ya
         return ims
