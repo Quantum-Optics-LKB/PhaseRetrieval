@@ -868,8 +868,10 @@ class WISH_Sensor_cpu:
         k = 2 * np.pi / wv
         Nx = A0.shape[1]
         Ny = A0.shape[0]
-        x = np.linspace(0, Nx - 1, Nx) - (Nx / 2) * np.ones(Nx)
-        y = np.linspace(0, Ny - 1, Ny) - (Ny / 2) * np.ones(Ny)
+        x = np.linspace(0, Nx - 1, Nx, dtype=np.float32) -\
+            (Nx / 2) * np.ones(Nx, dtype=np.float32)
+        y = np.linspace(0, Ny - 1, Ny, dtype=np.float32) -\
+            (Ny / 2) * np.ones(Ny, dtype=np.float32)
         d2x = wv * abs(z) / (Nx * d1x)
         d2y = wv * abs(z) / (Ny * d1y)
         X1, Y1 = d1x * np.meshgrid(x, y)[0], d1y * np.meshgrid(x, y)[1]
@@ -878,14 +880,14 @@ class WISH_Sensor_cpu:
         R2 = np.sqrt(X2 ** 2 + Y2 ** 2)
         A0 = A0 * np.exp(1j * (k / (2 * z)) * R1 ** 2)
         if z > 0:
-            A0 = np.fft.ifftshift(A0, axes=(0, 1))
-            A0 = np.fft.fft2(A0, axes=(0, 1))
-            A0 = np.fft.fftshift(A0, axes=(0, 1))
+            A0 = pyfftw.interfaces.numpy_fft.ifftshift(A0, axes=(0, 1))
+            A0 = pyfftw.interfaces.numpy_fft.fft2(A0, axes=(0, 1))
+            A0 = pyfftw.interfaces.numpy_fft.fftshift(A0, axes=(0, 1))
             A0 = d1x*d1y * A0
         elif z <= 0:
-            A0 = np.fft.ifftshift(A0, axes=(0, 1))
-            A0 = np.fft.ifft2(A0, axes=(0, 1))
-            A0 = np.fft.fftshift(A0, axes=(0, 1))
+            A0 = pyfftw.interfaces.numpy_fft.ifftshift(A0, axes=(0, 1))
+            A0 = pyfftw.interfaces.numpy_fft.ifft2(A0, axes=(0, 1))
+            A0 = pyfftw.interfaces.numpy_fft.fftshift(A0, axes=(0, 1))
             A0 = (Nx*d1x*Ny*d1y) * A0
         A0 = A0 * np.exp(1j * (k / (2 * z)) * R2 ** 2)
         A0 = A0 * 1 / (1j * wv * z)
@@ -893,7 +895,7 @@ class WISH_Sensor_cpu:
 
     @staticmethod
     def frt_vec(A0: np.ndarray, d1x: float, d1y: float, wv: float,
-                    z: float):
+                z: float):
         """
         Implements propagation using Fresnel diffraction. Vectorized.
         :param A0: Field to propagate
@@ -906,8 +908,10 @@ class WISH_Sensor_cpu:
         k = 2 * np.pi / wv
         Nx = A0.shape[2]
         Ny = A0.shape[1]
-        x = np.linspace(0, Nx - 1, Nx) - (Nx / 2) * np.ones(Nx)
-        y = np.linspace(0, Ny - 1, Ny) - (Ny / 2) * np.ones(Ny)
+        x = np.linspace(0, Nx - 1, Nx, dtype=np.float32) -\
+            (Nx / 2) * np.ones(Nx, dtype=np.float32)
+        y = np.linspace(0, Ny - 1, Ny, dtype=np.float32) -\
+            (Ny / 2) * np.ones(Ny, dtype=np.float32)
         d2x = wv * abs(z) / (Nx * d1x)
         d2y = wv * abs(z) / (Ny * d1y)
         X1, Y1 = d1x * np.meshgrid(x, y)[0], d1y * np.meshgrid(x, y)[1]
@@ -916,14 +920,14 @@ class WISH_Sensor_cpu:
         R2 = np.sqrt(X2 ** 2 + Y2 ** 2)
         A0 = A0 * np.exp(1j * (k / (2 * z)) * R1 ** 2)
         if z > 0:
-            A0 = np.fft.ifftshift(A0, axes=(1, 2))
-            A0 = np.fft.fft2(A0, axes=(1, 2))
-            A0 = np.fft.fftshift(A0, axes=(1, 2))
+            A0 = pyfftw.interfaces.numpy_fft.ifftshift(A0, axes=(1, 2))
+            A0 = pyfftw.interfaces.numpy_fft.fft2(A0, axes=(1, 2))
+            A0 = pyfftw.interfaces.numpy_fft.fftshift(A0, axes=(1, 2))
             A0 = d1x*d1y * A0
         elif z <= 0:
-            A0 = np.fft.ifftshift(A0, axes=(1, 2))
-            A0 = np.fft.ifft2(A0, axes=(1, 2))
-            A0 = np.fft.fftshift(A0, axes=(1, 2))
+            A0 = pyfftw.interfaces.numpy_fft.ifftshift(A0, axes=(1, 2))
+            A0 = pyfftw.interfaces.numpy_fft.ifft2(A0, axes=(1, 2))
+            A0 = pyfftw.interfaces.numpy_fft.fftshift(A0, axes=(1, 2))
             A0 = (Nx*d1x*Ny*d1y) * A0
         A0 = A0 * np.exp(1j * (k / (2 * z)) * R2 ** 2)
         A0 = A0 * 1 / (1j * wv * z)
@@ -943,21 +947,21 @@ class WISH_Sensor_cpu:
         Nx = A0.shape[1]
         Ny = A0.shape[0]
         if z > 0:
-            A0 = np.fft.ifftshift(A0, axes=(0, 1))
-            A0 = np.fft.fft2(A0, axes=(0, 1))
-            A0 = np.fft.fftshift(A0, axes=(0, 1))
+            A0 = pyfftw.interfaces.numpy_fft.ifftshift(A0, axes=(0, 1))
+            A0 = pyfftw.interfaces.numpy_fft.fft2(A0, axes=(0, 1))
+            A0 = pyfftw.interfaces.numpy_fft.fftshift(A0, axes=(0, 1))
             A0 = d1x*d1y * A0
         elif z <= 0:
-            A0 = np.fft.ifftshift(A0, axes=(0, 1))
-            A0 = np.fft.ifft2(A0, axes=(0, 1))
-            A0 = np.fft.fftshift(A0, axes=(0, 1))
+            A0 = pyfftw.interfaces.numpy_fft.ifftshift(A0, axes=(0, 1))
+            A0 = pyfftw.interfaces.numpy_fft.ifft2(A0, axes=(0, 1))
+            A0 = pyfftw.interfaces.numpy_fft.fftshift(A0, axes=(0, 1))
             A0 = (Nx*d1x*Ny*d1y) * A0
         A0 = A0 * 1 / (1j * wv * z)
         return A0
 
     @staticmethod
     def frt_vec_s(A0: np.ndarray, d1x: float, d1y: float, wv: float,
-                      z: float, plan=None):
+                  z: float):
         """
         Simplified Fresnel propagation optimized for fast CPU computing.
         Vectorized
@@ -971,29 +975,15 @@ class WISH_Sensor_cpu:
         Nx = A0.shape[2]
         Ny = A0.shape[1]
         if z > 0:
-            if plan is None:
-                A0 = np.fft.ifftshift(A0, axes=(1, 2))
-                A0 = np.fft.fft2(A0, axes=(1, 2))
-                A0 = np.fft.fftshift(A0, axes=(1, 2))
-                A0 = d1x*d1y * A0
-            else:
-                with plan:
-                    A0 = np.fft.ifftshift(A0, axes=(1, 2))
-                    A0 = np.fft.fft2(A0, axes=(1, 2))
-                    A0 = np.fft.fftshift(A0, axes=(1, 2))
-                    A0 = d1x*d1y * A0
+            A0 = pyfftw.interfaces.numpy_fft.ifftshift(A0, axes=(1, 2))
+            A0 = pyfftw.interfaces.numpy_fft.fft2(A0, axes=(1, 2))
+            A0 = pyfftw.interfaces.numpy_fft.fftshift(A0, axes=(1, 2))
+            A0 = d1x*d1y * A0
         elif z <= 0:
-            if plan is None:
-                A0 = np.fft.ifftshift(A0, axes=(1, 2))
-                A0 = np.fft.ifft2(A0, axes=(1, 2))
-                A0 = np.fft.fftshift(A0, axes=(1, 2))
-                A0 = (Nx*d1x*Ny*d1y) * A0
-            else:
-                with plan:
-                    A0 = np.fft.ifftshift(A0, axes=(1, 2))
-                    A0 = np.fft.ifft2(A0, axes=(1, 2))
-                    A0 = np.fft.fftshift(A0, axes=(1, 2))
-                    A0 = (Nx*d1x*Ny*d1y) * A0
+            A0 = pyfftw.interfaces.numpy_fft.ifftshift(A0, axes=(1, 2))
+            A0 = pyfftw.interfaces.numpy_fft.ifft2(A0, axes=(1, 2))
+            A0 = pyfftw.interfaces.numpy_fft.fftshift(A0, axes=(1, 2))
+            A0 = (Nx*d1x*Ny*d1y) * A0
         A0 = A0 * 1 / (1j * wv * z)
         return A0
 
@@ -1032,14 +1022,15 @@ class WISH_Sensor_cpu:
         delta3x = self.wavelength * self.z / (Nx * delta4x)
         delta3y = self.wavelength * self.z / (Ny * delta4y)
         if slm.dtype == 'uint8':
-            slm = slm.astype(float)/256.
+            slm = slm.astype(np.float32)/256.
         # check if SLM can be centered in the computational window
         Nxslm = slm.shape[1]
         Nyslm = slm.shape[0]
         cdx = (np.round(Nxslm*delta_SLM/delta3x) % 2) != 0
         cdy = (np.round(Nyslm*delta_SLM/delta3y) % 2) != 0
         if cdx or cdy:
-            Z = np.linspace(self.z-2e-5, self.z+2e-5, int(1e2))
+            Z = np.linspace(self.z-2e-5, self.z+2e-5, int(1e2),
+                            dtype=np.float32)
             D3x = self.wavelength * Z / (Nx * self.d_CAM)
             D3y = self.wavelength * Z / (Ny * self.d_CAM)
             X = np.round(Nxslm*self.d_SLM/D3x)
@@ -1066,12 +1057,11 @@ class WISH_Sensor_cpu:
         delta3x = self.wavelength * self.z / (Nx * delta4x)
         delta3y = self.wavelength * self.z / (Ny * delta4y)
         if slm.ndim == 3:
-            slm3 = np.empty((Ny, Nx, N_batch))
+            slm3 = np.empty((Ny, Nx, N_batch), dtype=np.float32)
             # scale SLM slices to the right size
             for i in range(N_batch):
-                slm1 = np.asnumpy(
-                        zoom(np.asarray(slm[:, :, i]),
-                             [delta_SLM/delta3y, delta_SLM/delta3x], order=0))
+                slm1 = zoom(np.asarray(slm[:, :, i]),
+                            [delta_SLM/delta3y, delta_SLM/delta3x], order=0)
                 if slm1.shape[0] > Ny and slm1.shape[1] <= Nx:
                     slm1 = self.crop_center(slm1, slm1.shape[1], Ny)
                 elif slm1.shape[0] <= Ny and slm1.shape[1] > Nx:
@@ -1092,7 +1082,7 @@ class WISH_Sensor_cpu:
                 raise
         elif slm.ndim == 2:
             slm2 = slm
-            slm3 = np.empty((Ny, Nx))
+            slm3 = np.empty((Ny, Nx), dtype=np.float32)
             # scale SLM slices to the right size
             slm1 = zoom(slm2, [delta_SLM / delta3y, delta_SLM / delta3x])
             slm1 = np.pad(slm1, (int(np.ceil((Ny - slm1.shape[0]) / 2)),
@@ -1130,27 +1120,28 @@ class WISH_Sensor_cpu:
         delta_SLM = self.d_SLM
         Lx_SLM = delta_SLM * slm.shape[1]
         Ly_SLM = delta_SLM * slm.shape[0]
-        x = np.linspace(0, Nx - 1, Nx) - (Nx / 2) * np.ones(Nx)
-        y = np.linspace(0, Ny - 1, Ny) - (Ny / 2) * np.ones(Ny)
+        x = np.linspace(0, Nx - 1, Nx, dtype=np.float32) -\
+            (Nx / 2) * np.ones(Nx, dtype=np.float32)
+        y = np.linspace(0, Ny - 1, Ny, dtype=np.float32) -\
+            (Ny / 2) * np.ones(Ny, dtype=np.float32)
         XX, YY = np.meshgrid(x, y)
         A_SLM = (np.abs(XX) * delta3x < Lx_SLM / 2) * \
                 (np.abs(YY) * delta3y < Ly_SLM / 2)
 
         if slm.dtype == 'uint8':
-            slm = slm.astype(float)/256
+            slm = slm.astype(np.float32)/256
         ims = np.zeros((Ny, Nx, Nim), dtype=np.float32)
         for i in range(Nim):
             sys.stdout.write(f"\rGenerating image {i+1} out of {Nim} ...")
             sys.stdout.flush()
             a31 = u3 * A_SLM * slm[:, :, i//N_os]
-            a31 = np.asarray(a31)  # put the field in the GPU
-            a4 = self.frt_gpu(a31, delta3x, delta3y, self.wavelength, z3)
-            w = noise * np.random.standard_normal((Ny, Nx,), dtype=float)
+            a4 = self.frt(a31, delta3x, delta3y, self.wavelength, z3)
+            w = noise * np.random.standard_normal((Ny, Nx,))
             ya = np.abs(a4)**2 + w
             ya[ya < 0] = 0
-            ya = shift(ya, (1*np.random.standard_normal(1, dtype=float),
-                       1*np.random.standard_normal(1, dtype=float)))
-            ims[:, :, i] = np.asnumpy(ya)
+            # ya = shift(ya, (1*np.random.standard_normal(1),
+            #           1*np.random.standard_normal(1)))
+            ims[:, :, i] = ya
             del a31, a4, ya
         return ims
 
@@ -1197,40 +1188,39 @@ class WISH_Sensor_cpu:
         y = np.zeros((Ny, Nx, N_os), dtype=np.complex64)
         # initilize a3
         k = 2 * np.pi / wvl
-        xx = np.linspace(0, Nx - 1, Nx, dtype=np.float) - (Nx / 2) *\
+        xx = np.linspace(0, Nx - 1, Nx, dtype=np.float32) - (Nx / 2) *\
             np.ones(Nx, dtype=np.float)
-        yy = np.linspace(0, Ny - 1, Ny, dtype=np.float) - (Ny / 2) *\
-            np.ones(Ny, dtype=np.float)
+        yy = np.linspace(0, Ny - 1, Ny, dtype=np.float32) - (Ny / 2) *\
+            np.ones(Ny, dtype=np.float32)
         X, Y = float(delta4x) * np.meshgrid(xx, yy)[0], float(delta4y) *\
             np.meshgrid(xx, yy)[1]
         R = np.sqrt(X ** 2 + Y ** 2)
         Q = np.exp(1j*(k/(2*z3))*R**2)
         del xx, yy, X, Y, R
-        SLM_batch = np.asarray(SLM[:, :, 0])
+        SLM_batch = SLM[:, :, 0]
         for ii in range(N_os):
             y0_batch = np.asarray(y0[:, :, ii])
-            u3_batch[:, :, ii] = self.frt_gpu_s(y0_batch/Q, delta4x, delta4y,
-                                                self.wavelength, -z3)
+            u3_batch[:, :, ii] = self.frt_s(y0_batch/Q, delta4x, delta4y,
+                                            self.wavelength, -z3)
             u3_batch[:, :, ii] *= np.conj(SLM_batch)
         u3 = np.mean(u3_batch, 2)
         # i_mask, j_mask = self.define_mask(np.abs(y0[:, :, 0]) ** 2,
         # plot=True)[1:3]
-        # Recon run : GS loop
+        # GS loop
         idx_converge = np.empty(N_iter)
         for jj in range(N_iter):
             sys.stdout.flush()
             u3_collect = np.zeros(u3.shape, dtype=np.complex64)
             idx_converge0 = np.empty(N_batch)
             for idx_batch in range(N_batch):
-                # put the correct batch into the GPU
                 SLM_batch = SLM[:, :, idx_batch]
                 y0_batch = y0[:, :,
                               int(N_os * idx_batch):int(N_os*(idx_batch+1))]
                 y0_batch = np.asarray(y0_batch)
                 SLM_batch = np.asarray(SLM_batch)
                 for _ in range(N_os):
-                    u4[:, :, _] = self.frt_gpu_s(u3 * SLM_batch, delta3x,
-                                                 delta3y, self.wavelength, z3)
+                    u4[:, :, _] = self.frt_s(u3 * SLM_batch, delta3x,
+                                             delta3y, self.wavelength, z3)
                     # impose the amplitude
                     y[:, :, _] = y0_batch[:, :, _] *\
                         np.exp(1j * np.angle(u4[:, :, _]))
@@ -1238,7 +1228,7 @@ class WISH_Sensor_cpu:
                     # y[i_mask:j_mask,i_mask:j_mask,_] = y0_batch[
                     # i_mask:j_mask,i_mask:j_mask,_] \
                     # *np.exp(1j * np.angle(u4[i_mask:j_mask,i_mask:j_mask,_]))
-                    u3_batch[:, :, _] = self.frt_gpu_s(
+                    u3_batch[:, :, _] = self.frt_s(
                         y[:, :, _], delta4x, delta4y, self.wavelength, -z3) *\
                         np.conj(SLM_batch)
                 # add U3 from each batch
@@ -1263,10 +1253,10 @@ class WISH_Sensor_cpu:
                     # if idx_converge[jj]>idx_converge[jj-1]:
                     print('\nConverged. Exit the GS loop ...')
                     # idx_converge = idx_converge[0:jj]
-                    idx_converge = np.asnumpy(idx_converge[0:jj])
+                    idx_converge = idx_converge[0:jj]
                     break
         # propagate solution to sensor plane
-        u4_est = self.frt_gpu_s(u3, delta3x, delta3y, self.wavelength, z3) * Q
+        u4_est = self.frt_s(u3, delta3x, delta3y, self.wavelength, z3) * Q
         return u3, u4_est, idx_converge
 
     def WISHrun_vec(self, y0: np.ndarray, SLM: np.ndarray, delta3x: float,
@@ -1290,43 +1280,40 @@ class WISH_Sensor_cpu:
         Nim = self.Nim
         N_os = self.N_os
         N_iter = self.N_gs
-        U3 = np.empty((Nim, Ny, Nx), dtype=np.complex64)  # store all U3 gpu
+        U3 = pyfftw.empty_aligned((Nim, Ny, Nx), dtype=np.complex64)
         k = 2 * np.pi / wvl
-        xx = np.linspace(0, Nx - 1, Nx, dtype=np.float) - \
-            (Nx / 2) * np.ones(Nx, dtype=np.float)
-        yy = np.linspace(0, Ny - 1, Ny, dtype=np.float) - \
-            (Ny / 2) * np.ones(Ny, dtype=np.float)
+        xx = np.linspace(0, Nx - 1, Nx, dtype=np.float32) - \
+            (Nx / 2) * np.ones(Nx, dtype=np.float32)
+        yy = np.linspace(0, Ny - 1, Ny, dtype=np.float32) - \
+            (Ny / 2) * np.ones(Ny, dtype=np.float32)
         X, Y = float(delta4x) * np.meshgrid(xx, yy)[0], \
             float(delta4y) * np.meshgrid(xx, yy)[1]
         R = np.sqrt(X ** 2 + Y ** 2)
         Q = np.exp(1j * (k / (2 * z3)) * R ** 2)
         del xx, yy, X, Y, R
-        SLM = np.asarray(SLM.repeat(N_os, axis=2))
-        y0 = np.asarray(y0)
+        SLM = SLM.repeat(N_os, axis=2)
         SLM = SLM.transpose(2, 0, 1)
         y0 = y0.transpose(2, 0, 1)
         for ii in range(N_os):
             y0_batch = y0[ii, :, :]
             SLM_batch = y0[ii, :, :]
-            U3[ii, :, :] = self.frt_gpu_s(y0_batch / Q, delta4x, delta4y,
-                                          self.wavelength, -z3) *\
-                np.conj(SLM_batch)  # y0_batch gpu
+            U3[ii, :, :] = self.frt_s(y0_batch / Q, delta4x, delta4y,
+                                      self.wavelength, -z3)*np.conj(SLM_batch)
         u3 = np.mean(U3[0:N_os, :, :], 0)
         del SLM_batch, y0_batch
         # Recon run : GS loop
         idx_converge = np.empty(N_iter)
-        plan_fft = fftpack.get_fft_plan(U3, axes=(1, 2))
         for jj in range(N_iter):
             sys.stdout.flush()
             # on the sensor
-            U3 = self.frt_gpu_vec_s((SLM * u3), delta3x, delta3y,
-                                    self.wavelength, z3, plan=plan_fft)
+            U3 = self.frt_vec_s((SLM * u3), delta3x, delta3y, self.wavelength,
+                                z3)
             # convergence index matrix for each batch
             idx_converge0 = (1 / np.sqrt(Nx*Ny)) * \
                 np.linalg.norm((np.abs(U3)-y0) * (y0 > 0), axis=(1, 2))
             U3 = y0 * np.exp(1j * np.angle(U3))  # impose the amplitude
-            U3 = self.frt_gpu_vec_s(U3, delta4x, delta4y, self.wavelength,
-                                    -z3, plan=plan_fft) * np.conj(SLM)
+            U3 = self.frt_vec_s(U3, delta4x, delta4y, self.wavelength, -z3) *\
+                np.conj(SLM)
 
             u3 = np.mean(U3, 0)  # average over batches
             idx_converge[jj] = np.mean(idx_converge0)  # sum over batches
@@ -1342,8 +1329,8 @@ class WISH_Sensor_cpu:
                     # if idx_converge[jj]>idx_converge[jj-1]:
                     print('\nConverged. Exit the GS loop ...')
                     # idx_converge = idx_converge[0:jj]
-                    idx_converge = np.asnumpy(idx_converge[0:jj])
+                    idx_converge = idx_converge[0:jj]
                     break
         # propagate solution to sensor plane
-        u4_est = self.frt_gpu_s(u3, delta3x, delta3y, self.wavelength, z3) * Q
+        u4_est = self.frt_s(u3, delta3x, delta3y, self.wavelength, z3) * Q
         return u3, u4_est, idx_converge
