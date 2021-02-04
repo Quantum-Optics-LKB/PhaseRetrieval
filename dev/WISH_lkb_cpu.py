@@ -16,8 +16,11 @@ import sys
 import configparser
 from numba import jit
 from scipy.ndimage import zoom, gaussian_filter
+import numexpr as ne
 
-pyfftw.config.NUM_THREADS = 7
+# TODO replace all pointwise multiplications by ne.evaluate('a*b') (multithreaded kernel)
+
+pyfftw.config.NUM_THREADS = 15
 pyfftw.config.PLANNER_EFFORT = 'FFTW_ESTIMATE'
 #pyfftw.config.PLANNER_EFFORT = 'FFTW_MEASURE'
 

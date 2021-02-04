@@ -13,6 +13,12 @@ import configparser
 import cupy as cp
 from cupyx.scipy.ndimage import zoom, shift
 from cupyx.scipy import fftpack
+import numexpr as ne
+
+# TODO replace all pointwise multiplications by ne.evaluate('a*b') (multithreaded kernel)
+
+pyfftw.config.NUM_THREADS = 15
+pyfftw.config.PLANNER_EFFORT = 'FFTW_ESTIMATE'
 
 """
 IMPORTANT NOTE : If the cupy module won't work, check that you have the right
@@ -699,3 +705,7 @@ class WISH_Sensor:
         # propagate solution to sensor plane
         u4_est = self.frt_gpu_s(u3, delta3x, delta3y, self.wavelength, z3) * Q
         return u3, u4_est, idx_converge
+        
+class WISH_sensor_cpu:
+    def __init__(self):
+        pass

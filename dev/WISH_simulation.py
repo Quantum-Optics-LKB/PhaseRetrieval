@@ -25,10 +25,10 @@ def main():
     im = np.array(Image.open('intensities/I0_256_full.bmp'))[:, :, 0]
     # im = np.load('measurements/y0_32.npy')[:,:,0]**2
     phi0 = np.array(Image.open('phases/harambe_256_full.bmp'))[:, :, 0]
-    im = cp.asnumpy(zoom(cp.asarray(im), [8.25, 8.25]))
-    phi0 = cp.asnumpy(zoom(cp.asarray(phi0), [8.25, 8.25]))
-    paddingy = int((2160-(8.25*256))/2)
-    paddingx = int((3840-(8.25*256))/2)
+    im = cp.asnumpy(zoom(cp.asarray(im), [7, 7]))
+    phi0 = cp.asnumpy(zoom(cp.asarray(phi0), [7, 7]))
+    paddingy = int((2160-(7*256))/2)
+    paddingx = int((3840-(7*256))/2)
     u40 = np.pad(im.astype(np.float32)/256, ((paddingy, paddingy),
                                              (paddingx, paddingx)))
     u40 = Sensor.gaussian_profile(u40, 0.5)
@@ -47,15 +47,15 @@ def main():
     slm_type = 'SLM'
     if slm_type == 'DMD':
         slm = np.ones((1080, 1920, Sensor.N_mod))
-        slm[:, :, 1] = Sensor.modulate_binary((1080, 1920), pxsize=2)
+        slm[:, :, 1] = 2*Sensor.modulate_binary((1080, 1920), pxsize=2)
         for i in range(1, Sensor.N_mod//2):
-            slm[:, :, 2 * i] = Sensor.modulate((1080, 1920), pxsize=2)
+            slm[:, :, 2 * i] = 2*Sensor.modulate_binary((1080, 1920), pxsize=2)
             slm[:, :, 2 * i + 1] = np.ones((1080, 1920)) - slm[:, :, 2 * i]
     elif slm_type == 'SLM':
         slm = np.ones((1080, 1920, Sensor.N_mod))
         for i in range(0, Sensor.N_mod):
             slm[:, :, i] = Sensor.modulate((slm.shape[0], slm.shape[1]),
-                                           pxsize=1)
+                                           pxsize=7)
     if slm_type == 'DMD':
         SLM = Sensor.process_SLM(slm, Nx, Ny, delta4x, delta4y, type="amp")
         fig = plt.figure(1)
@@ -71,7 +71,7 @@ def main():
         ax2.set_title("Back propagated field")
         cbar1 = fig.colorbar(im1, cax=cax1)
         cbar2 = fig.colorbar(im2, cax=cax2)
-        cbar1.set_label("Phase in rad", rotation=270)
+        cbar1.set_label("Modulation amplitude", rotation=270)
         cbar2.set_label("Intensity", rotation=270)
         plt.show()
     elif slm_type == 'SLM':
@@ -146,7 +146,7 @@ def main():
     ax1.set_title('Initial amplitude', fontsize=14)
     im2 = ax4.imshow(np.angle(u40), cmap='twilight', vmin=-np.pi, vmax=np.pi)
     ax4.set_title('Initial phase', fontsize=14)
-    im3 = ax2.imshow(np.abs(u4_est), cmap='viridis')  # , vmin=0, vmax=1)
+    im3 = ax2.imshow(np.abs(u4_est), cmap='viridis', vmin=0, vmax=1)
     ax2.set_title('Amplitude estimation cam', fontsize=14)
     im5 = ax5.imshow(np.angle(u4_est), cmap='twilight', vmin=-np.pi, vmax=np.pi)
     ax5.text(8, 18, f"RMS = {'{:.3f}%'.format(100 * phase_rms)}", bbox={'facecolor': 'white', 'pad': 4})
