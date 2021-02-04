@@ -27,8 +27,8 @@ def main():
     phi0 = np.array(Image.open('phases/harambe_256_full.bmp'))[:, :, 0]
     # im = cp.asnumpy(zoom(cp.asarray(im), [7, 7]))
     # phi0 = cp.asnumpy(zoom(cp.asarray(phi0), [7, 7]))
-    im = cp.asnumpy(zoom(cp.asarray(im), [1, 1]))
-    phi0 = cp.asnumpy(zoom(cp.asarray(phi0), [1, 1]))
+    im = cp.asnumpy(zoom(cp.asarray(im), [4, 4]))
+    phi0 = cp.asnumpy(zoom(cp.asarray(phi0), [4, 4]))
     # paddingy = int((2160-(7*256))/2)
     # paddingx = int((3840-(7*256))/2)
     paddingy = 32
@@ -130,7 +130,7 @@ def main():
                         (np.abs(u40) > 0)) for th in np.linspace(
                         -np.pi, np.pi, 512)])
     # phase_rms = cp.asnumpy(cp.min(phase_RMS))
-    phase_rms = min(phase_RMS)
+    phase_rms = np.min(phase_RMS)
     # u3_est = cp.asnumpy(u3_est)
     # u4_est = cp.asnumpy(u4_est)
 

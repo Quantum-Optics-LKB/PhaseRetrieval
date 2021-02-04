@@ -26,6 +26,8 @@ import numexpr as ne
 
 pyfftw.config.NUM_THREADS = multiprocessing.cpu_count()
 pyfftw.config.PLANNER_EFFORT = 'FFTW_ESTIMATE'
+# pyfftw.config.PLANNER_EFFORT = 'FFTW_MEASURE'
+
 
 """
 IMPORTANT NOTE : If the cupy module won't work, check that you have the right
@@ -961,7 +963,7 @@ class WISH_Sensor_cpu:
 
     @staticmethod
     def frt_vec_s(A0: np.ndarray, d1x: float, d1y: float, wv: float,
-                  z: float):
+                  z: float, fft: pyfftw.FFTW = None):
         """
         Simplified Fresnel propagation optimized for fast CPU computing.
         Vectorized
@@ -975,14 +977,25 @@ class WISH_Sensor_cpu:
         Nx = A0.shape[2]
         Ny = A0.shape[1]
         if z > 0:
-            A0 = pyfftw.interfaces.numpy_fft.ifftshift(A0, axes=(1, 2))
-            A0 = pyfftw.interfaces.numpy_fft.fft2(A0, axes=(1, 2))
-            A0 = pyfftw.interfaces.numpy_fft.fftshift(A0, axes=(1, 2))
+            if fft is None:
+                A0 = pyfftw.interfaces.numpy_fft.ifftshift(A0, axes=(1, 2))
+                A0 = pyfftw.interfaces.numpy_fft.fft2(A0, axes=(1, 2))
+                A0 = pyfftw.interfaces.numpy_fft.fftshift(A0, axes=(1, 2))
+            else:
+                A0 = pyfftw.interfaces.numpy_fft.ifftshift(A0, axes=(1, 2))
+                A0 = fft(A0)
+                A0 = pyfftw.interfaces.numpy_fft.fftshift(A0, axes=(1, 2))
             A0 = d1x*d1y * A0
+
         elif z <= 0:
-            A0 = pyfftw.interfaces.numpy_fft.ifftshift(A0, axes=(1, 2))
-            A0 = pyfftw.interfaces.numpy_fft.ifft2(A0, axes=(1, 2))
-            A0 = pyfftw.interfaces.numpy_fft.fftshift(A0, axes=(1, 2))
+            if fft is None:
+                A0 = pyfftw.interfaces.numpy_fft.ifftshift(A0, axes=(1, 2))
+                A0 = pyfftw.interfaces.numpy_fft.ifft2(A0, axes=(1, 2))
+                A0 = pyfftw.interfaces.numpy_fft.fftshift(A0, axes=(1, 2))
+            else:
+                A0 = pyfftw.interfaces.numpy_fft.ifftshift(A0, axes=(1, 2))
+                A0 = fft(A0)
+                A0 = pyfftw.interfaces.numpy_fft.fftshift(A0, axes=(1, 2))
             A0 = (Nx*d1x*Ny*d1y) * A0
         A0 = A0 * 1 / (1j * wv * z)
         return A0
@@ -1280,7 +1293,6 @@ class WISH_Sensor_cpu:
         Nim = self.Nim
         N_os = self.N_os
         N_iter = self.N_gs
-        U3 = pyfftw.empty_aligned((Nim, Ny, Nx), dtype=np.complex64)
         k = 2 * np.pi / wvl
         xx = np.linspace(0, Nx - 1, Nx, dtype=np.float32) - \
             (Nx / 2) * np.ones(Nx, dtype=np.float32)
@@ -1293,27 +1305,37 @@ class WISH_Sensor_cpu:
         del xx, yy, X, Y, R
         SLM = SLM.repeat(N_os, axis=2)
         SLM = SLM.transpose(2, 0, 1)
-        y0 = y0.transpose(2, 0, 1)
+        U3 = pyfftw.empty_aligned((Nim, Ny, Nx), dtype=np.complex64)
+        y = pyfftw.empty_aligned((Nim, Ny, Nx), dtype=np.complex64)
+        y = y0.transpose(2, 0, 1)
+        fft_obj = pyfftw.builders.fft2(U3, axes=(1, 2),
+                                       overwrite_input=True,
+                                       threads=multiprocessing.cpu_count(),
+                                       planner_effort="FFTW_ESTIMATE")
+        ifft_obj = pyfftw.builders.ifft2(y, axes=(1, 2),
+                                         overwrite_input=True,
+                                         threads=multiprocessing.cpu_count(),
+                                         planner_effort="FFTW_ESTIMATE")
         for ii in range(N_os):
-            y0_batch = y0[ii, :, :]
-            SLM_batch = y0[ii, :, :]
-            U3[ii, :, :] = self.frt_s(y0_batch / Q, delta4x, delta4y,
+            y_batch = y[ii, :, :]
+            SLM_batch = y[ii, :, :]
+            U3[ii, :, :] = self.frt_s(y_batch / Q, delta4x, delta4y,
                                       self.wavelength, -z3)*np.conj(SLM_batch)
         u3 = np.mean(U3[0:N_os, :, :], 0)
-        del SLM_batch, y0_batch
+        del SLM_batch, y_batch
         # Recon run : GS loop
         idx_converge = np.empty(N_iter)
         for jj in range(N_iter):
             sys.stdout.flush()
             # on the sensor
             U3 = self.frt_vec_s((SLM * u3), delta3x, delta3y, self.wavelength,
-                                z3)
+                                z3, fft=fft_obj)
             # convergence index matrix for each batch
             idx_converge0 = (1 / np.sqrt(Nx*Ny)) * \
-                np.linalg.norm((np.abs(U3)-y0) * (y0 > 0), axis=(1, 2))
-            U3 = y0 * np.exp(1j * np.angle(U3))  # impose the amplitude
-            U3 = self.frt_vec_s(U3, delta4x, delta4y, self.wavelength, -z3) *\
-                np.conj(SLM)
+                np.linalg.norm((np.abs(U3)-y) * (y > 0), axis=(1, 2))
+            U3 = y * np.exp(1j * np.angle(U3))  # impose the amplitude
+            U3 = self.frt_vec_s(U3, delta4x, delta4y, self.wavelength, -z3,
+                                fft=ifft_obj) * np.conj(SLM)
 
             u3 = np.mean(U3, 0)  # average over batches
             idx_converge[jj] = np.mean(idx_converge0)  # sum over batches
