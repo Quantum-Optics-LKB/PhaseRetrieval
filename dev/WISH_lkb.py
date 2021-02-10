@@ -978,24 +978,24 @@ class WISH_Sensor_cpu:
         Ny = A0.shape[1]
         if z > 0:
             if fft is None:
-                A0 = pyfftw.interfaces.numpy_fft.ifftshift(A0, axes=(1, 2))
-                A0 = pyfftw.interfaces.numpy_fft.fft2(A0, axes=(1, 2))
-                A0 = pyfftw.interfaces.numpy_fft.fftshift(A0, axes=(1, 2))
+                A0 = np.fft.ifftshift(A0, axes=(1, 2))
+                A0 = np.fft.fft2(A0, axes=(1, 2))
+                A0 = np.fft.fftshift(A0, axes=(1, 2))
             else:
-                A0 = pyfftw.interfaces.numpy_fft.ifftshift(A0, axes=(1, 2))
+                A0 = np.fft.ifftshift(A0, axes=(1, 2))
                 A0 = fft(A0)
-                A0 = pyfftw.interfaces.numpy_fft.fftshift(A0, axes=(1, 2))
+                A0 = np.fft.fftshift(A0, axes=(1, 2))
             A0 = d1x*d1y * A0
 
         elif z <= 0:
             if fft is None:
-                A0 = pyfftw.interfaces.numpy_fft.ifftshift(A0, axes=(1, 2))
-                A0 = pyfftw.interfaces.numpy_fft.ifft2(A0, axes=(1, 2))
-                A0 = pyfftw.interfaces.numpy_fft.fftshift(A0, axes=(1, 2))
+                A0 = np.fft.ifftshift(A0, axes=(1, 2))
+                A0 = np.fft.ifft2(A0, axes=(1, 2))
+                A0 = np.fft.fftshift(A0, axes=(1, 2))
             else:
-                A0 = pyfftw.interfaces.numpy_fft.ifftshift(A0, axes=(1, 2))
+                A0 = np.fft.ifftshift(A0, axes=(1, 2))
                 A0 = fft(A0)
-                A0 = pyfftw.interfaces.numpy_fft.fftshift(A0, axes=(1, 2))
+                A0 = np.fft.fftshift(A0, axes=(1, 2))
             A0 = (Nx*d1x*Ny*d1y) * A0
         A0 = A0 * 1 / (1j * wv * z)
         return A0
@@ -1324,34 +1324,34 @@ class WISH_Sensor_cpu:
         u3 = np.mean(U3[0:N_os, :, :], 0)
         del SLM_batch, y_batch
         # Recon run : GS loop
-        idx_converge = np.empty(N_iter)
+        idx_converge = np.empty(N_iter//5)
         for jj in range(N_iter):
             sys.stdout.flush()
             # on the sensor
             U3 = self.frt_vec_s((SLM * u3), delta3x, delta3y, self.wavelength,
                                 z3, fft=fft_obj)
-            # convergence index matrix for each batch
-            idx_converge0 = (1 / np.sqrt(Nx*Ny)) * \
-                np.linalg.norm((np.abs(U3)-y) * (y > 0), axis=(1, 2))
+            # U3 = self.frt_vec_s(ne.evaluate('SLM*u3'), delta3x, delta3y, self.wavelength,
+            #                     z3, fft=fft_obj)
+            # convergence index matrix for every 10 iterations
+            if jj%5 == 0:
+                idx_converge0 = (1 / np.sqrt(Nx*Ny)) * \
+                    np.linalg.norm((np.abs(U3)-y) * (y > 0), axis=(1, 2))
+                idx_converge[jj//5] = np.mean(idx_converge0)
+                sys.stdout.write(f"  (convergence index : {idx_converge[jj//10]})")
             U3 = y * np.exp(1j * np.angle(U3))  # impose the amplitude
             U3 = self.frt_vec_s(U3, delta4x, delta4y, self.wavelength, -z3,
                                 fft=ifft_obj) * np.conj(SLM)
-
             u3 = np.mean(U3, 0)  # average over batches
-            idx_converge[jj] = np.mean(idx_converge0)  # sum over batches
             sys.stdout.write(f"\rGS iteration {jj + 1}")
-            sys.stdout.write(f"  (convergence index : {idx_converge[jj]})")
+
 
             # exit if the matrix doesn't change much
-            if jj > 1:
-                eps = np.abs(idx_converge[jj] - idx_converge[jj - 1]) / \
-                    idx_converge[jj]
+            if (jj > 1) & (jj%5 == 0):
+                eps = np.abs(idx_converge[jj//5] - idx_converge[jj//5 - 1]) / \
+                    idx_converge[jj//5]
                 if eps < 5e-5:
-                    # if np.abs(idx_converge[jj]) < 5e-6:
-                    # if idx_converge[jj]>idx_converge[jj-1]:
                     print('\nConverged. Exit the GS loop ...')
-                    # idx_converge = idx_converge[0:jj]
-                    idx_converge = idx_converge[0:jj]
+                    idx_converge = idx_converge[0:jj//5]
                     break
         # propagate solution to sensor plane
         u4_est = self.frt_s(u3, delta3x, delta3y, self.wavelength, z3) * Q
