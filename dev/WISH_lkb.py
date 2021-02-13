@@ -19,10 +19,7 @@ from cupyx.scipy import fftpack
 from cupyx.scipy import fft as fftsc
 import pyfftw
 import multiprocessing
-import numexpr as ne
-
-# TODO replace all pointwise multiplications by ne.evaluate('a*b')
-#  (multithreaded kernel)
+import time
 
 pyfftw.config.NUM_THREADS = multiprocessing.cpu_count()
 pyfftw.config.PLANNER_EFFORT = 'FFTW_ESTIMATE'
@@ -516,8 +513,8 @@ class WISH_Sensor:
             w = noise * cp.random.standard_normal((Ny, Nx,), dtype=float)
             ya = cp.abs(a4)**2 + w
             ya[ya < 0] = 0
-            ya = shift_cp(ya, (1*cp.random.standard_normal(1, dtype=float),
-                          1*cp.random.standard_normal(1, dtype=float)))
+            # ya = shift_cp(ya, (1*cp.random.standard_normal(1, dtype=float),
+            #               1*cp.random.standard_normal(1, dtype=float)))
             ims[:, :, i] = cp.asnumpy(ya)
             del a31, a4, ya
         return ims
@@ -682,37 +679,41 @@ class WISH_Sensor:
         u3 = cp.mean(U3[0:N_os, :, :], 0)
         del SLM_batch, y0_batch
         # GS loop
-        idx_converge = np.empty(N_iter)
+        idx_converge = np.empty(N_iter//5)
         plan_fft = fftpack.get_fft_plan(U3, axes=(1, 2))
+        T_run_0 = time.time()
         for jj in range(N_iter):
             sys.stdout.flush()
             # on the sensor
             U3 = self.frt_gpu_vec_s((SLM * u3), delta3x, delta3y,
                                     self.wavelength, z3, plan=plan_fft)
-            # convergence index matrix for each batch
-            idx_converge0 = (1 / np.sqrt(Nx*Ny)) * \
-                cp.linalg.norm((cp.abs(U3)-y0) * (y0 > 0), axis=(1, 2))
+            # convergence index matrix for every 5 iterations
+            if jj%5 == 0:
+                idx_converge0 = (1 / np.sqrt(Nx*Ny)) * \
+                    cp.linalg.norm((cp.abs(U3)-y0) * (y0 > 0), axis=(1, 2))
+                idx_converge[jj//5] = cp.mean(idx_converge0)
+                sys.stdout.write(f"  (convergence index : {idx_converge[jj//5]})")
             U3 = y0 * cp.exp(1j * cp.angle(U3))  # impose the amplitude
             U3 = self.frt_gpu_vec_s(U3, delta4x, delta4y, self.wavelength,
                                     -z3, plan=plan_fft) * cp.conj(SLM)
             u3 = cp.mean(U3, 0)  # average over batches
-            idx_converge[jj] = np.mean(idx_converge0)  # sum over batches
             sys.stdout.write(f"\rGS iteration {jj + 1}")
-            sys.stdout.write(f"  (convergence index : {idx_converge[jj]})")
 
             # exit if the matrix doesn't change much
-            if jj > 1:
-                eps = cp.abs(idx_converge[jj] - idx_converge[jj - 1]) / \
-                    idx_converge[jj]
+            if (jj > 1) & (jj%5 == 0):
+                eps = cp.abs(idx_converge[jj//5] - idx_converge[jj//5 - 1]) / \
+                    idx_converge[jj//5]
                 if eps < 5e-5:
                     # if cp.abs(idx_converge[jj]) < 5e-6:
                     # if idx_converge[jj]>idx_converge[jj-1]:
                     print('\nConverged. Exit the GS loop ...')
                     # idx_converge = idx_converge[0:jj]
-                    idx_converge = cp.asnumpy(idx_converge[0:jj])
+                    idx_converge = cp.asnumpy(idx_converge[0:jj//5])
                     break
         # propagate solution to sensor plane
         u4_est = self.frt_gpu_s(u3, delta3x, delta3y, self.wavelength, z3) * Q
+        T_run = time.time()-T_run_0
+        print(f"\n Time spent in the GS loop : {T_run} s")
         return u3, u4_est, idx_converge
 
 
@@ -1307,15 +1308,15 @@ class WISH_Sensor_cpu:
         SLM = SLM.transpose(2, 0, 1)
         U3 = pyfftw.empty_aligned((Nim, Ny, Nx), dtype=np.complex64)
         y = pyfftw.empty_aligned((Nim, Ny, Nx), dtype=np.complex64)
-        y = y0.transpose(2, 0, 1)
         fft_obj = pyfftw.builders.fft2(U3, axes=(1, 2),
                                        overwrite_input=True,
                                        threads=multiprocessing.cpu_count(),
-                                       planner_effort="FFTW_ESTIMATE")
+                                       planner_effort="FFTW_MEASURE")
         ifft_obj = pyfftw.builders.ifft2(y, axes=(1, 2),
                                          overwrite_input=True,
                                          threads=multiprocessing.cpu_count(),
-                                         planner_effort="FFTW_ESTIMATE")
+                                         planner_effort="FFTW_MEASURE")
+        y = y0.transpose(2, 0, 1)
         for ii in range(N_os):
             y_batch = y[ii, :, :]
             SLM_batch = y[ii, :, :]
@@ -1325,6 +1326,7 @@ class WISH_Sensor_cpu:
         del SLM_batch, y_batch
         # Recon run : GS loop
         idx_converge = np.empty(N_iter//5)
+        T_run_0 = time.time()
         for jj in range(N_iter):
             sys.stdout.flush()
             # on the sensor
@@ -1337,12 +1339,12 @@ class WISH_Sensor_cpu:
                 idx_converge0 = (1 / np.sqrt(Nx*Ny)) * \
                     np.linalg.norm((np.abs(U3)-y) * (y > 0), axis=(1, 2))
                 idx_converge[jj//5] = np.mean(idx_converge0)
-                sys.stdout.write(f"  (convergence index : {idx_converge[jj//10]})")
+                sys.stdout.write(f"  (convergence index : {idx_converge[jj//5]})")
             U3 = y * np.exp(1j * np.angle(U3))  # impose the amplitude
             U3 = self.frt_vec_s(U3, delta4x, delta4y, self.wavelength, -z3,
                                 fft=ifft_obj) * np.conj(SLM)
             u3 = np.mean(U3, 0)  # average over batches
-            sys.stdout.write(f"\rGS iteration {jj + 1}")
+            sys.stdout.write(f"\r GS iteration {jj + 1}")
 
 
             # exit if the matrix doesn't change much
@@ -1355,4 +1357,6 @@ class WISH_Sensor_cpu:
                     break
         # propagate solution to sensor plane
         u4_est = self.frt_s(u3, delta3x, delta3y, self.wavelength, z3) * Q
+        T_run = time.time()-T_run_0
+        print(f"\n Time spent in the GS loop : {T_run} s")
         return u3, u4_est, idx_converge
