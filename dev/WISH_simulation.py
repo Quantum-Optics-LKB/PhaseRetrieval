@@ -17,7 +17,7 @@ def main():
     # start timer
     T0 = time.time()
     # instantiate WISH
-    Sensor = WISH_Sensor_cpu("wish_3.conf")
+    Sensor = WISH_Sensor("wish_3.conf")
     wvl = Sensor.wavelength
     z3 = Sensor.z
     delta4x = Sensor.d_CAM
@@ -27,12 +27,12 @@ def main():
     phi0 = np.array(Image.open('phases/harambe_256_full.bmp'))[:, :, 0]
     # im = cp.asnumpy(zoom(cp.asarray(im), [7, 7]))
     # phi0 = cp.asnumpy(zoom(cp.asarray(phi0), [7, 7]))
-    im = cp.asnumpy(zoom(cp.asarray(im), [4, 4]))
-    phi0 = cp.asnumpy(zoom(cp.asarray(phi0), [4, 4]))
+    im = cp.asnumpy(zoom(cp.asarray(im), [1.5, 1.5]))
+    phi0 = cp.asnumpy(zoom(cp.asarray(phi0), [1.5, 1.5]))
     # paddingy = int((2160-(7*256))/2)
     # paddingx = int((3840-(7*256))/2)
-    paddingy = 32
-    paddingx = 32
+    paddingy = int((512-(1.5*256))/2)
+    paddingx = int((512-(1.5*256))/2)
     u40 = np.pad(im.astype(np.float32)/256, ((paddingy, paddingy),
                                              (paddingx, paddingx)))
     u40 = Sensor.gaussian_profile(u40, 0.5)
@@ -115,29 +115,26 @@ def main():
     plt.show()
 
     # Recon initilization
-    T_run_0 = time.time()
     u3_est, u4_est, idx_converge = Sensor.WISHrun_vec(
                             y0, SLM, delta3x, delta3y, delta4x, delta4y)
-    T_run = time.time()-T_run_0
-    # u41 = cp.asarray(u40)
-    # phase_RMS = (1 / (2 * np.pi * (np.sqrt((Nx-2*paddingx)*(Ny-2*paddingy)))))\
-    #     * cp.asarray(
-    #     [cp.linalg.norm((cp.angle(u41) - cp.angle(cp.exp(1j * th) * u4_est)) *
-    #                     (cp.abs(u41) > 0)) for th in cp.linspace(
-    #                     -np.pi, np.pi, 512)])
-    phase_RMS = (1/(2*np.pi*(np.sqrt((Nx-2*paddingx)*(Ny-2*paddingy))))) * \
-        np.asarray([np.linalg.norm((np.angle(u40) - np.angle(np.exp(1j * th) * u4_est)) *
-                        (np.abs(u40) > 0)) for th in np.linspace(
+    u41 = cp.asarray(u40)
+    phase_RMS = (1 / (2 * np.pi * (np.sqrt((Nx-2*paddingx)*(Ny-2*paddingy)))))\
+        * cp.asarray(
+        [cp.linalg.norm((cp.angle(u41) - cp.angle(cp.exp(1j * th) * u4_est)) *
+                        (cp.abs(u41) > 0)) for th in cp.linspace(
                         -np.pi, np.pi, 512)])
-    # phase_rms = cp.asnumpy(cp.min(phase_RMS))
-    phase_rms = np.min(phase_RMS)
-    # u3_est = cp.asnumpy(u3_est)
-    # u4_est = cp.asnumpy(u4_est)
+    # phase_RMS = (1/(2*np.pi*(np.sqrt((Nx-2*paddingx)*(Ny-2*paddingy))))) * \
+    #     np.asarray([np.linalg.norm((np.angle(u40) - np.angle(np.exp(1j * th) * u4_est)) *
+    #                     (np.abs(u40) > 0)) for th in np.linspace(
+    #                     -np.pi, np.pi, 512)])
+    phase_rms = cp.asnumpy(cp.min(phase_RMS))
+    # phase_rms = np.min(phase_RMS)
+    u3_est = cp.asnumpy(u3_est)
+    u4_est = cp.asnumpy(u4_est)
 
-    print(f"\n Phase RMS is {'{:.3f}%'.format(100*phase_rms)}")
+    print(f"\n Phase RMS is {'{:.3f},%'.format(100*phase_rms)}")
     # total time
     T = time.time()-T0
-    print(f"\n Time spent in the GS loop : {T_run} s")
     print(f"\n Total time elapsed : {T} s")
     fig = plt.figure()
     ax1 = fig.add_subplot(231)
@@ -164,7 +161,7 @@ def main():
     ax5.text(8, 18, f"RMS = {'{:.3f}%'.format(100 * phase_rms)}",
              bbox={'facecolor': 'white', 'pad': 4})
     ax5.set_title('Phase estimation', fontsize=14)
-    ax3.plot(np.arange(0, len(idx_converge), 1), idx_converge)
+    ax3.plot(np.arange(0, len(idx_converge)*5, 5), idx_converge)
     ax3.set_yscale('log')
     ax3.set_title("Convergence curve", fontsize=14)
     ax3.set_xlabel("Iteration")
