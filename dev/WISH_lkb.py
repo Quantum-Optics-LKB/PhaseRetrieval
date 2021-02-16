@@ -15,11 +15,12 @@ from cupyx.scipy.ndimage import zoom as zoom_cp
 from cupyx.scipy.ndimage import shift as shift_cp
 from scipy.ndimage import zoom as zoom
 from scipy.ndimage import shift as shift
-from cupyx.scipy import fftpack
 from cupyx.scipy import fft as fftsc
 import pyfftw
+import mkl_fft
 import multiprocessing
 import time
+import pickle
 
 pyfftw.config.NUM_THREADS = multiprocessing.cpu_count()
 pyfftw.config.PLANNER_EFFORT = 'FFTW_ESTIMATE'
@@ -338,15 +339,15 @@ class WISH_Sensor:
         if z > 0:
             if plan is None:
                 A0 = cp.fft.ifftshift(A0, axes=(1, 2))
+                # A0 = fftsc.fft2(A0, axes=(1, 2), overwrite_x=True)
                 A0 = fftsc.fft2(A0, axes=(1, 2), overwrite_x=True)
                 A0 = cp.fft.fftshift(A0, axes=(1, 2))
                 A0 = d1x*d1y * A0
             else:
-                with plan:
-                    A0 = cp.fft.ifftshift(A0, axes=(1, 2))
-                    A0 = fftsc.fft2(A0, axes=(1, 2), overwrite_x=True)
-                    A0 = cp.fft.fftshift(A0, axes=(1, 2))
-                    A0 = d1x*d1y * A0
+                A0 = cp.fft.ifftshift(A0, axes=(1, 2))
+                plan.fft(A0, A0, cp.cuda.cufft.CUFFT_FORWARD)
+                A0 = cp.fft.fftshift(A0, axes=(1, 2))
+                A0 = d1x*d1y * A0
         elif z <= 0:
             if plan is None:
                 A0 = cp.fft.ifftshift(A0, axes=(1, 2))
@@ -354,11 +355,10 @@ class WISH_Sensor:
                 A0 = cp.fft.fftshift(A0, axes=(1, 2))
                 A0 = (Nx*d1x*Ny*d1y) * A0
             else:
-                with plan:
-                    A0 = cp.fft.ifftshift(A0, axes=(1, 2))
-                    A0 = fftsc.ifft2(A0, axes=(1, 2), overwrite_x=True)
-                    A0 = cp.fft.fftshift(A0, axes=(1, 2))
-                    A0 = (Nx*d1x*Ny*d1y) * A0
+                A0 = cp.fft.ifftshift(A0, axes=(1, 2))
+                plan.fft(A0, A0, cp.cuda.cufft.CUFFT_INVERSE)
+                A0 = cp.fft.fftshift(A0, axes=(1, 2))
+                A0 = d1x*d1y * A0
         A0 = A0 * 1 / (1j * wv * z)
         return A0
 
@@ -655,7 +655,6 @@ class WISH_Sensor:
         Nim = self.Nim
         N_os = self.N_os
         N_iter = self.N_gs
-        U3 = cp.empty((Nim, Ny, Nx), dtype=cp.complex64)  # store all U3 gpu
         k = 2 * np.pi / wvl
         xx = cp.linspace(0, Nx - 1, Nx, dtype=cp.float32) - \
             (Nx / 2) * cp.ones(Nx, dtype=cp.float32)
@@ -666,8 +665,9 @@ class WISH_Sensor:
         R = cp.sqrt(X ** 2 + Y ** 2)
         Q = cp.exp(1j * (k / (2 * z3)) * R ** 2)
         del xx, yy, X, Y, R
-        SLM = cp.asarray(SLM.repeat(N_os, axis=2))
-        y0 = cp.asarray(y0)
+        U3 = cp.empty((Nim, Ny, Nx), dtype=cp.complex64)
+        SLM = cp.asarray(SLM.repeat(N_os, axis=2), dtype=cp.complex64)
+        y0 = cp.asarray(y0, dtype=cp.complex64)
         SLM = SLM.transpose(2, 0, 1)
         y0 = y0.transpose(2, 0, 1)
         for ii in range(N_os):
@@ -680,19 +680,28 @@ class WISH_Sensor:
         del SLM_batch, y0_batch
         # GS loop
         idx_converge = np.empty(N_iter//5)
-        plan_fft = fftpack.get_fft_plan(U3, axes=(1, 2))
+        shape = U3.shape
+        out_dtype = cp.fft._fft._output_dtype(U3.dtype, 'C2C')
+        fft_type = cp.fft._fft._convert_fft_type(out_dtype, 'C2C')
+        plan_fft = cp.cuda.cufft.PlanNd(shape[1:], shape[1:], 1,
+                                        shape[1]*shape[2], shape[1:], 1,
+                                        shape[1]*shape[2], fft_type, shape[0],
+                                        order='C', last_axis=-1,
+                                        last_size=None)
         T_run_0 = time.time()
         for jj in range(N_iter):
             sys.stdout.flush()
             # on the sensor
-            U3 = self.frt_gpu_vec_s((SLM * u3), delta3x, delta3y,
+            U3 = self.frt_gpu_vec_s(SLM * u3, delta3x, delta3y,
                                     self.wavelength, z3, plan=plan_fft)
             # convergence index matrix for every 5 iterations
-            if jj%5 == 0:
+            if jj % 5 == 0:
                 idx_converge0 = (1 / np.sqrt(Nx*Ny)) * \
-                    cp.linalg.norm((cp.abs(U3)-y0) * (y0 > 0), axis=(1, 2))
+                    cp.linalg.norm((cp.abs(U3)-y0) *
+                                   (y0 > 0), axis=(1, 2))
                 idx_converge[jj//5] = cp.mean(idx_converge0)
-                sys.stdout.write(f"  (convergence index : {idx_converge[jj//5]})")
+                prt = f"  (convergence index : {idx_converge[jj//5]})"
+                sys.stdout.write(prt)
             U3 = y0 * cp.exp(1j * cp.angle(U3))  # impose the amplitude
             U3 = self.frt_gpu_vec_s(U3, delta4x, delta4y, self.wavelength,
                                     -z3, plan=plan_fft) * cp.conj(SLM)
@@ -700,16 +709,18 @@ class WISH_Sensor:
             sys.stdout.write(f"\rGS iteration {jj + 1}")
 
             # exit if the matrix doesn't change much
-            if (jj > 1) & (jj%5 == 0):
+            if (jj > 1) & (jj % 5 == 0):
                 eps = cp.abs(idx_converge[jj//5] - idx_converge[jj//5 - 1]) / \
                     idx_converge[jj//5]
-                if eps < 5e-5:
+                if eps < 1e-3:
                     # if cp.abs(idx_converge[jj]) < 5e-6:
                     # if idx_converge[jj]>idx_converge[jj-1]:
                     print('\nConverged. Exit the GS loop ...')
                     # idx_converge = idx_converge[0:jj]
                     idx_converge = cp.asnumpy(idx_converge[0:jj//5])
                     break
+            if jj == N_iter-1:
+                print('\nMax iteration number reached. Exit ...')
         # propagate solution to sensor plane
         u4_est = self.frt_gpu_s(u3, delta3x, delta3y, self.wavelength, z3) * Q
         T_run = time.time()-T_run_0
@@ -980,7 +991,7 @@ class WISH_Sensor_cpu:
         if z > 0:
             if fft is None:
                 A0 = np.fft.ifftshift(A0, axes=(1, 2))
-                A0 = np.fft.fft2(A0, axes=(1, 2))
+                A0 = mkl_fft.fft2(A0, axes=(1, 2), overwrite_x=True)
                 A0 = np.fft.fftshift(A0, axes=(1, 2))
             else:
                 A0 = np.fft.ifftshift(A0, axes=(1, 2))
@@ -991,7 +1002,7 @@ class WISH_Sensor_cpu:
         elif z <= 0:
             if fft is None:
                 A0 = np.fft.ifftshift(A0, axes=(1, 2))
-                A0 = np.fft.ifft2(A0, axes=(1, 2))
+                A0 = mkl_fft.ifft2(A0, axes=(1, 2), overwrite_x=True)
                 A0 = np.fft.fftshift(A0, axes=(1, 2))
             else:
                 A0 = np.fft.ifftshift(A0, axes=(1, 2))
@@ -1308,14 +1319,20 @@ class WISH_Sensor_cpu:
         SLM = SLM.transpose(2, 0, 1)
         U3 = pyfftw.empty_aligned((Nim, Ny, Nx), dtype=np.complex64)
         y = pyfftw.empty_aligned((Nim, Ny, Nx), dtype=np.complex64)
+        with open('fft_wisdom.pickle', 'rb') as f:
+            fft_wisdom = pickle.load(f)
+        pyfftw.import_wisdom(fft_wisdom)
         fft_obj = pyfftw.builders.fft2(U3, axes=(1, 2),
                                        overwrite_input=True,
                                        threads=multiprocessing.cpu_count(),
-                                       planner_effort="FFTW_MEASURE")
+                                       planner_effort="FFTW_PATIENT")
         ifft_obj = pyfftw.builders.ifft2(y, axes=(1, 2),
                                          overwrite_input=True,
                                          threads=multiprocessing.cpu_count(),
-                                         planner_effort="FFTW_MEASURE")
+                                         planner_effort="FFTW_PATIENT")
+        fft_wisdom = pyfftw.export_wisdom()
+        with open('fft_wisdom.pickle', 'wb') as f:
+            pickle.dump(fft_wisdom, f)
         y = y0.transpose(2, 0, 1)
         for ii in range(N_os):
             y_batch = y[ii, :, :]
@@ -1332,26 +1349,23 @@ class WISH_Sensor_cpu:
             # on the sensor
             U3 = self.frt_vec_s((SLM * u3), delta3x, delta3y, self.wavelength,
                                 z3, fft=fft_obj)
-            # U3 = self.frt_vec_s(ne.evaluate('SLM*u3'), delta3x, delta3y, self.wavelength,
-            #                     z3, fft=fft_obj)
-            # convergence index matrix for every 10 iterations
-            if jj%5 == 0:
+            # convergence index matrix for every 5 iterations
+            if jj % 5 == 0:
                 idx_converge0 = (1 / np.sqrt(Nx*Ny)) * \
                     np.linalg.norm((np.abs(U3)-y) * (y > 0), axis=(1, 2))
                 idx_converge[jj//5] = np.mean(idx_converge0)
-                sys.stdout.write(f"  (convergence index : {idx_converge[jj//5]})")
+                prt = f"  (convergence index : {idx_converge[jj//5]})"
+                sys.stdout.write(prt)
             U3 = y * np.exp(1j * np.angle(U3))  # impose the amplitude
             U3 = self.frt_vec_s(U3, delta4x, delta4y, self.wavelength, -z3,
                                 fft=ifft_obj) * np.conj(SLM)
             u3 = np.mean(U3, 0)  # average over batches
             sys.stdout.write(f"\r GS iteration {jj + 1}")
-
-
             # exit if the matrix doesn't change much
-            if (jj > 1) & (jj%5 == 0):
+            if (jj > 1) & (jj % 5 == 0):
                 eps = np.abs(idx_converge[jj//5] - idx_converge[jj//5 - 1]) / \
                     idx_converge[jj//5]
-                if eps < 5e-5:
+                if eps < 1e-3:
                     print('\nConverged. Exit the GS loop ...')
                     idx_converge = idx_converge[0:jj//5]
                     break
