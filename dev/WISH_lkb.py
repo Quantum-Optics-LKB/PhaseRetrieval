@@ -339,7 +339,6 @@ class WISH_Sensor:
         if z > 0:
             if plan is None:
                 A0 = cp.fft.ifftshift(A0, axes=(1, 2))
-                # A0 = fftsc.fft2(A0, axes=(1, 2), overwrite_x=True)
                 A0 = fftsc.fft2(A0, axes=(1, 2), overwrite_x=True)
                 A0 = cp.fft.fftshift(A0, axes=(1, 2))
                 A0 = d1x*d1y * A0
