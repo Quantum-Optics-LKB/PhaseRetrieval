@@ -13,6 +13,7 @@ import time
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 plt.switch_backend("QT5Agg")
 
+
 class SLMscreen:
 
     def __init__(self, resX, resY):
@@ -42,6 +43,7 @@ class SLMscreen:
         #this is ugly but else you need to update it twice before it works fine
         self.update(np.zeros((resY, resX), dtype='uint8'))
         self.update(np.zeros((resY, resX), dtype='uint8'))
+
     def update(self, array, sleep=0.01):
         """
         Displays the array on the SLM
@@ -52,13 +54,13 @@ class SLMscreen:
         self.fig.canvas.draw()
         self.window.showMaximized()
         time.sleep(sleep)
+
     def close(self):
         """
         Closes the SLM window and resets the matplotlib rcParams parameters
         :return:
         """
+        plt.close(self.fig)
         mpl.rcParams['toolbar'] = 'toolbar2'
         mpl.rcParams['image.interpolation'] = 'None'
         mpl.rcParams['image.resample'] = False
-
-        plt.close(self.fig)
