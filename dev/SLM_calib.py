@@ -1,13 +1,16 @@
 import numpy as np
 import matplotlib.pyplot as plt
 import EasyPySpin
-import slmpy
+from SLM import SLMscreen
 from PIL import Image
 import time
 import cv2
 
 #Code to calibrate an SLM displaying a grating and fitting the fringes.
 #create the grating
+resX, resY = 1920, 1080
+pxpitch = 8.0e-6  # SLM pixel pitch
+
 def grating(N_ref, N, d):
     """
     Displays a grating of pitch d
@@ -16,9 +19,9 @@ def grating(N_ref, N, d):
     :param d: pitch
     :return: The grating as a 2d array
     """
-    G = N_ref*np.ones((1024, 1280), dtype='uint8')
-    y = np.linspace(0,1023,1024)
-    x = np.linspace(0,1279,1280)
+    G = N_ref*np.ones((resY, resX), dtype='uint8')
+    y = np.linspace(0,resY-1,resY)
+    x = np.linspace(0,resX-1,resX)
     X,Y = np.meshgrid(x,y)
     G[X%d < d/2]=N
     return G
@@ -30,8 +33,8 @@ def circle(R, width, value):
     :param value : Value inside the circle
     :return: The circle as a 2d array
     """
-    x = 636 - np.linspace(0,1271, 1272)
-    y = 512 - np.linspace(0,1023, 1024)
+    x = resX//2 - np.linspace(0,resX-1, resX)
+    y = resY//2 - np.linspace(0,resY-1, resY)
     X,Y = np.meshgrid(x,y)
     out = np.zeros(X.shape, dtype='uint8')
     Radii = np.sqrt(X**2 + Y**2)
@@ -46,8 +49,8 @@ def lens(f, b):
     :param b : bit value (0 to 255)
     :return: the phase mask corresponding to the lens
     """
-    x = 12.5e-6*(636 - np.linspace(0, 1271, 1272))
-    y = 12.5e-6*(512 - np.linspace(0, 1023, 1024))
+    x = pxpitch*(resX//2 - np.linspace(0, resX-1, resX))
+    y = pxpitch*(resY//2 - np.linspace(0, resY-1, resY))
     X, Y = np.meshgrid(x, y)
     R = np.sqrt(X**2 + Y**2)
     k=2*np.pi/780e-9
@@ -57,23 +60,24 @@ def lens(f, b):
     out = (b*phi).astype('uint8')
     return out
 L = lens(43.7e-3, 206)
-slm = slmpy.SLMdisplay(isImageLock=True)
+slm=SLMscreen(resX, resY)
 #cam = EasyPySpin.VideoCapture(0)
 G=grating(0,206,20)
 C = circle(100, 20, 100)
 #load SLM flatness correction
-corr = np.array(Image.open("/home/tangui/Documents/SLM/deformation_correction_pattern/CAL_LSH0802200_780nm.bmp"))
+# corr = np.array(Image.open("/home/tangui/Documents/SLM/deformation_correction_pattern/         CAL_LSH0802200_780nm.bmp"))
+corr = np.zeros((resY, resX))
 #plt.imshow(((206/255)*(C+corr)%256).astype("uint8"))
 #plt.show()
 
-slm.updateArray(((206/255)*(C-corr)%256).astype("uint8"))
+slm.update(((206/255)*(C-corr)%256).astype("uint8"))
 #slm.updateArray(C)
-time.sleep(200000)
+# time.sleep(200000)
 #Displays lenses
 for f in np.linspace(60e-3,120e-3, 20):
     print(f)
     L=lens(f, 206)
-    slm.updateArray(((206/255)*(L-corr)%256).astype("uint8"))
+    slm.update(((206/255)*(L-corr)%256).astype("uint8"))
     time.sleep(0.25)
 #for b in np.linspace(180,255, 60, dtype='uint8'):
 #    print(b)
