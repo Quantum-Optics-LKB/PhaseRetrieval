@@ -209,7 +209,7 @@ class WISH_Sensor:
         X2, Y2 = d2x * np.meshgrid(x, y)[0], d2y * np.meshgrid(x, y)[1]
         R1 = np.sqrt(X1 ** 2 + Y1 ** 2)
         R2 = np.sqrt(X2 ** 2 + Y2 ** 2)
-        D = n/(1j*wv*z)
+        D = 1/(1j*wv*z)
         Q1 = np.exp(1j*(k/(2*z))*R1**2)
         Q2 = np.exp(1j*(k/(2*z))*R2**2)
         if z >= 0:
@@ -259,7 +259,7 @@ class WISH_Sensor:
             A0 = cp.fft.fftshift(A0, axes=(0, 1))
             A0 = (Nx*d1x*Ny*d1y) * A0
         A0 = A0 * cp.exp(1j * (k / (2 * z)) * R2 ** 2)
-        A0 = A0 * n / (1j * wv * z)
+        A0 = A0 * 1 / (1j * wv * z)
         return A0
 
     @staticmethod
@@ -299,12 +299,11 @@ class WISH_Sensor:
             A0 = cp.fft.fftshift(A0, axes=(1, 2))
             A0 = (Nx*d1x*Ny*d1y) * A0
         A0 = A0 * cp.exp(1j * (k / (2 * z)) * R2 ** 2)
-        A0 = A0 * n / (1j * wv * z)
+        A0 = A0 * 1 / (1j * wv * z)
         return A0
 
     @staticmethod
-    def frt_gpu_s(A0: np.ndarray, d1x: float, d1y: float, wv: float, n: float,
-                  z: float):
+    def frt_gpu_s(A0: np.ndarray, d1x: float, d1y: float, wv: float, z: float):
         """
         Simplified Fresnel propagation optimized for GPU computing. Runs on a
         GPU using CuPy with a CUDA backend.
@@ -312,7 +311,6 @@ class WISH_Sensor:
         :param d1x: Sampling size of the field A0 in the x direction
         :param d1y: Sampling size of the field A0 in the y direction
         :param wv: Wavelength in m
-        :param n: Refractive index
         :param z : Propagation distance in metres
         :return: A0 : Propagated field
         """
@@ -328,12 +326,12 @@ class WISH_Sensor:
             A0 = fftsc.ifft2(A0, axes=(0, 1), overwrite_x=True)
             A0 = cp.fft.fftshift(A0, axes=(0, 1))
             A0 = (Nx*d1x*Ny*d1y) * A0
-        A0 = A0 * n / (1j * wv * z)
+        A0 = A0 * 1 / (1j * wv * z)
         return A0
 
     @staticmethod
     def frt_gpu_vec_s(A0: np.ndarray, d1x: float, d1y: float, wv: float,
-                      n: float, z: float, plan=None):
+                      z: float, plan=None):
         """
         Simplified Fresnel propagation optimized for GPU computing. Runs on a
         GPU using CuPy with a CUDA backend.
@@ -341,7 +339,6 @@ class WISH_Sensor:
         :param d1x: Sampling size of the field A0 in the x direction
         :param d1y: Sampling size of the field A0 in the y direction
         :param wv: Wavelength in m
-        :param n: Refractive index
         :param z : Propagation distance in metres
         :return: A : Propagated field
         """
@@ -369,7 +366,7 @@ class WISH_Sensor:
                 plan.fft(A0, A0, cp.cuda.cufft.CUFFT_INVERSE)
                 A0 = cp.fft.fftshift(A0, axes=(1, 2))
                 A0 = d1x*d1y * A0
-        A0 = A0 * n / (1j * wv * z)
+        A0 = A0 * 1 / (1j * wv * z)
         return A0
 
     def u4Tou3(self, u4: np.ndarray, delta4x: float, delta4y: float,
@@ -586,7 +583,7 @@ class WISH_Sensor:
         for ii in range(N_os):
             y0_batch = cp.asarray(y0[:, :, ii])
             u3_batch[:, :, ii] = self.frt_gpu_s(y0_batch/Q, delta4x, delta4y,
-                                                self.wavelength, self.n, -z3)
+                                                self.wavelength, -z3)
             u3_batch[:, :, ii] *= cp.conj(SLM_batch)
         u3 = cp.mean(u3_batch, 2)
         # i_mask, j_mask = self.define_mask(np.abs(y0[:, :, 0]) ** 2,
@@ -606,8 +603,7 @@ class WISH_Sensor:
                 SLM_batch = cp.asarray(SLM_batch)
                 for _ in range(N_os):
                     u4[:, :, _] = self.frt_gpu_s(u3 * SLM_batch, delta3x,
-                                                 delta3y, self.wavelength,
-                                                 self.n, z3)
+                                                 delta3y, self.wavelength, z3)
                     # impose the amplitude
                     y[:, :, _] = y0_batch[:, :, _] *\
                         cp.exp(1j * cp.angle(u4[:, :, _]))
@@ -616,7 +612,7 @@ class WISH_Sensor:
                     # i_mask:j_mask,i_mask:j_mask,_] \
                     # *cp.exp(1j * cp.angle(u4[i_mask:j_mask,i_mask:j_mask,_]))
                     u3_batch[:, :, _] = self.frt_gpu_s(
-                        y[:, :, _], delta4x, delta4y, self.wavelength, self.n, -z3) *\
+                        y[:, :, _], delta4x, delta4y, self.wavelength, -z3) *\
                         cp.conj(SLM_batch)
                 # add U3 from each batch
                 u3_collect = u3_collect + cp.mean(u3_batch, 2)
@@ -643,8 +639,7 @@ class WISH_Sensor:
                     idx_converge = cp.asnumpy(idx_converge[0:jj])
                     break
         # propagate solution to sensor plane
-        u4_est = self.frt_gpu_s(u3, delta3x, delta3y, self.wavelength, self.n,
-                                z3) * Q
+        u4_est = self.frt_gpu_s(u3, delta3x, delta3y, self.wavelength, z3) * Q
         return u3, u4_est, idx_converge
 
     def WISHrun_vec(self, y0: np.ndarray, SLM: np.ndarray, delta3x: float,
@@ -687,7 +682,7 @@ class WISH_Sensor:
             y0_batch = y0[ii, :, :]
             SLM_batch = y0[ii, :, :]
             U3[ii, :, :] = self.frt_gpu_s(y0_batch / Q, delta4x, delta4y,
-                                          self.wavelength, self.n, -z3) *\
+                                          self.wavelength, -z3) *\
                 cp.conj(SLM_batch)  # y0_batch gpu
         u3 = cp.mean(U3[0:N_os, :, :], 0)
         del SLM_batch, y0_batch
@@ -706,7 +701,7 @@ class WISH_Sensor:
             sys.stdout.flush()
             # on the sensor
             U3 = self.frt_gpu_vec_s(SLM * u3, delta3x, delta3y,
-                                    self.wavelength, self.n, z3, plan=plan_fft)
+                                    self.wavelength, z3, plan=plan_fft)
             # convergence index matrix for every 5 iterations
             if jj % 5 == 0:
                 idx_converge0 = (1 / np.sqrt(Nx*Ny)) * \
@@ -717,7 +712,7 @@ class WISH_Sensor:
                 sys.stdout.write(prt)
             U3 = y0 * cp.exp(1j * cp.angle(U3))  # impose the amplitude
             U3 = self.frt_gpu_vec_s(U3, delta4x, delta4y, self.wavelength,
-                                    self.n, -z3, plan=plan_fft) * cp.conj(SLM)
+                                    -z3, plan=plan_fft) * cp.conj(SLM)
             u3 = cp.mean(U3, 0)  # average over batches
             sys.stdout.write(f"\rGS iteration {jj + 1}")
 
@@ -735,8 +730,7 @@ class WISH_Sensor:
             if jj == N_iter-1:
                 print('\nMax iteration number reached. Exit ...')
         # propagate solution to sensor plane
-        u4_est = self.frt_gpu_s(u3, delta3x, delta3y, self.wavelength, self.n,
-                                z3) * Q
+        u4_est = self.frt_gpu_s(u3, delta3x, delta3y, self.wavelength, z3) * Q
         T_run = time.time()-T_run_0
         print(f"\n Time spent in the GS loop : {T_run} s")
         return u3, u4_est, idx_converge
