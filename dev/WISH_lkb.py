@@ -223,7 +223,8 @@ class WISH_Sensor:
         return A
 
     @staticmethod
-    def frt_gpu(A0: np.ndarray, d1x: float, d1y: float, wv: float, z: float):
+    def frt_gpu(A0: np.ndarray, d1x: float, d1y: float, wv: float, n: float,
+                z: float):
         """
         Implements propagation using Fresnel diffraction. Runs on a GPU using
         CuPy with a CUDA backend.
@@ -231,10 +232,11 @@ class WISH_Sensor:
         :param d1x: Sampling size of the field A0 in the x direction
         :param d1y: Sampling size of the field A0 in the y direction
         :param wv: Wavelength in m
+        :param n: Refractive index
         :param z : Propagation distance in metres
         :return: A0 : Propagated field
         """
-        k = 2 * np.pi / wv
+        k = n * 2 * np.pi / wv
         Nx = A0.shape[1]
         Ny = A0.shape[0]
         x = cp.linspace(0, Nx - 1, Nx) - (Nx / 2) * cp.ones(Nx)
@@ -514,7 +516,8 @@ class WISH_Sensor:
             sys.stdout.flush()
             a31 = u3 * A_SLM * slm[:, :, i//N_os]
             a31 = cp.asarray(a31)  # put the field in the GPU
-            a4 = self.frt_gpu(a31, delta3x, delta3y, self.wavelength, z3)
+            a4 = self.frt_gpu(a31, delta3x, delta3y, self.wavelength, self.n,
+                              z3)
             w = noise * cp.random.standard_normal((Ny, Nx,), dtype=float)
             ya = cp.abs(a4)**2 + w
             ya[ya < 0] = 0

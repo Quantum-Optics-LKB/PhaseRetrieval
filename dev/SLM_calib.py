@@ -20,10 +20,10 @@ def grating(N_ref, N, d):
     :return: The grating as a 2d array
     """
     G = N_ref*np.ones((resY, resX), dtype='uint8')
-    y = np.linspace(0,resY-1,resY)
-    x = np.linspace(0,resX-1,resX)
-    X,Y = np.meshgrid(x,y)
-    G[X%d < d/2]=N
+    y = np.linspace(0, resY-1, resY)
+    x = np.linspace(0, resX-1, resX)
+    X, Y = np.meshgrid(x, y)
+    G[X % d < d/2] = N
     return G
 def circle(R, width, value):
     """
@@ -33,15 +33,16 @@ def circle(R, width, value):
     :param value : Value inside the circle
     :return: The circle as a 2d array
     """
-    x = resX//2 - np.linspace(0,resX-1, resX)
-    y = resY//2 - np.linspace(0,resY-1, resY)
-    X,Y = np.meshgrid(x,y)
+    x = resX//2 - np.linspace(0, resX-1, resX)
+    y = resY//2 - np.linspace(0, resY-1, resY)
+    X, Y = np.meshgrid(x, y)
     out = np.zeros(X.shape, dtype='uint8')
     Radii = np.sqrt(X**2 + Y**2)
-    cond = Radii>(R-width/2)
+    cond = Radii > (R-width/2)
     cond &= Radii < (R+width/2)
     out[cond] = value
     return out
+
 def lens(f, b):
     """
     Generates a lens pattern of focal length f
@@ -53,31 +54,36 @@ def lens(f, b):
     y = pxpitch*(resY//2 - np.linspace(0, resY-1, resY))
     X, Y = np.meshgrid(x, y)
     R = np.sqrt(X**2 + Y**2)
-    k=2*np.pi/780e-9
+    k = 1.5*2*np.pi/780e-9
     phi = (k*R**2)/(2*f)
-    phi = phi%(2*np.pi)
-    phi/=2*np.pi
+    phi = phi % (2*np.pi)
+    phi /= 2*np.pi
     out = (b*phi).astype('uint8')
     return out
-L = lens(43.7e-3, 206)
-slm=SLMscreen(resX, resY)
+
+
+L = lens(95.6e-3, 255)
+slm = SLMscreen(resX, resY)
 #cam = EasyPySpin.VideoCapture(0)
-G=grating(0,206,20)
-C = circle(100, 20, 100)
+G = grating(0, 206, 20)
+C = circle(100, 20, 128)
 #load SLM flatness correction
-# corr = np.array(Image.open("/home/tangui/Documents/SLM/deformation_correction_pattern/         CAL_LSH0802200_780nm.bmp"))
-corr = np.zeros((resY, resX))
+# corr = np.array(Image.open("/home/tangui/Documents/SLM/deformation_correction_pattern/CAL_LSH0802200_780nm.bmp"))
+corr = Image.open("/home/tangui/Documents/phase_retrieval/dev/phases/U14-2048-201133-06-04-07_808nm.png")
+# corr = np.zeros((resY, resX))
 #plt.imshow(((206/255)*(C+corr)%256).astype("uint8"))
 #plt.show()
 
-slm.update(((206/255)*(C-corr)%256).astype("uint8"))
-#slm.updateArray(C)
-# time.sleep(200000)
+# slm.update(((250/255)*(L-corr) % 256).astype("uint8"))
+slm.update(((250/255)*(C-corr) % 256).astype("uint8"))
+
+# slm.update(C)
+time.sleep(200000)
 #Displays lenses
-for f in np.linspace(60e-3,120e-3, 20):
+for f in np.linspace(94e-3, 96e-3, 20):
     print(f)
-    L=lens(f, 206)
-    slm.update(((206/255)*(L-corr)%256).astype("uint8"))
+    L = lens(f, 255)
+    slm.update(((250/255)*(L-corr) % 256).astype("uint8"))
     time.sleep(0.25)
 #for b in np.linspace(180,255, 60, dtype='uint8'):
 #    print(b)

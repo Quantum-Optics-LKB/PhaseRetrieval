@@ -12,6 +12,7 @@ import cupy as cp
 from scipy.ndimage import zoom
 from WISH_lkb import WISH_Sensor
 from PIL import Image
+from SLM import SLMscreen
 import slmpy
 import cv2
 import EasyPySpin
@@ -45,7 +46,9 @@ def main():
     # instantiate WISH sensor reading the conf file
     Sensor = WISH_Sensor("wish_3.conf")
     # load SLM flatness correction
-    corr = Image.open("/home/tangui/Documents/SLM/deformation_correction_pattern/CAL_LSH0802200_780nm.bmp")
+    # corr = Image.open("/home/tangui/Documents/SLM/deformation_correction_pattern/CAL_LSH0802200_780nm.bmp")
+    # corr = Image.open("/home/tangui/Documents/phase_retrieval/dev/phases/U14-2048-201133-06-04-07_808nm.png")
+    corr = np.zeros((1080, 1920))
     wvl = Sensor.wavelength
     z3 = Sensor.z
     delta4x = Sensor.d_CAM
@@ -58,9 +61,11 @@ def main():
     Ny = int(Cam.get(cv2.CAP_PROP_FRAME_HEIGHT)*zoom_factor)
     delta3x = wvl * z3 / (Nx * delta4x)
     delta3y = wvl * z3 / (Ny * delta4y)
-    ims = np.zeros((N, N, Sensor.Nim))
+    ims = np.zeros((Ny, Nx, Sensor.Nim))
     if slm_type == 'DMD':
-        slm = np.ones((1080, 1920, Sensor.N_mod))
+        resX, resY = 1920, 1080
+        slm = np.ones((resY, resX, Sensor.N_mod))
+        # slm_display = SLMscreen(resX, resY)
         slm_display = slmpy.SLMdisplay(isImageLock=True)
 
         slm_display.update(slm[:, :, 0])
@@ -71,41 +76,46 @@ def main():
             frame = cv2.warpAffine(frame, T, frame.shape)
             ims[:, :, obs] = zoom(cv2.flip(frame, 0), zoom_factor)
         for i in range(1, int(Sensor.N_mod/2)):
-            slm[:, :, 2 * i] = Sensor.modulate_binary((1080, 1920), pxsize=1)
-            slm_display.updateArray(slm[:, :, 2 * i])
+            slm[:, :, 2 * i] = Sensor.modulate_binary((resY, resX), pxsize=1)
+            slm_display.update(slm[:, :, 2 * i])
             for obs in range(Sensor.N_os):
                 ret, frame = Cam.read()
                 frame = alignment(frame)
                 ims[:, :, 2 * Sensor.N_os*i+obs] = zoom(cv2.flip(frame, 0),
                                                         zoom_factor)
-            slm[:, :, 2 * i + 1] = np.ones((1080, 1920)) - slm[:, :, 2 * i]
-            slm_display.updateArray(slm[:, :, 2 * i+1])
+            slm[:, :, 2 * i + 1] = np.ones((resY, resX)) - slm[:, :, 2 * i]
+            slm_display.update(slm[:, :, 2 * i+1])
             for obs in range(Sensor.N_os):
                 ret, frame = Cam.read()
                 frame = alignment(frame)
                 ims[:, :, 2 * i + 1 + obs] = zoom(cv2.flip(frame, 0),
                                                   zoom_factor)
     elif slm_type == 'SLM':
-        resX, resY = 1272, 1024
+        resX, resY = 1920, 1080
         angle = 0  # to correct for misalignment btwn camera and SLM
-        slm_display = slmpy.SLMdisplay(isImageLock=True)
+        slm_display = SLMscreen(resX, resY)
+        # slm_display = slmpy.SLMdisplay(isImageLock=True)
         slm = np.ones((resY, resX, Sensor.N_mod))
-        slm_display.updateArray(slm[:, :, 0].astype('uint8'))
+        # slm_display.updateArray(slm[:, :, 0].astype('uint8'))
+        slm_display.update(slm[:, :, 0].astype('uint8'))
         ret, frame = Cam.read()
         frame = cv2.flip(frame, 0)
         mask = frame > Sensor.threshold*np.max(frame)
         for i in range(0, Sensor.N_mod):
-            slm[:, :, i] = Sensor.modulate((resY, resX), pxsize=6)
-            # slm[:,:,i]=Sensor.modulate_binary((resY,resX), pxsize=6)
+            slm[:, :, i] = Sensor.modulate((resY, resX), pxsize=8)
+            # slm[:, :, i] = Sensor.modulate_binary((resY, resX), pxsize=10)
             print(f"Displaying {i + 1} th SLM pattern")
-            slm_display.updateArray((205*((1/255)*(256*slm[:, :, i]-corr)%256)).astype('uint8'))
-            time.sleep(1)
+            # slm_display.updateArray((250*((1/255)*(256*slm[:, :, i]-corr)%256)).astype('uint8'))
+            slm_display.update((250*((1/255)*(256*slm[:, :, i]-corr)%256)).astype('uint8'))
+            slm_display.update((250*((1/255)*(256*slm[:, :, i]-corr)%256)).astype('uint8'))
+            # time.sleep(1)
             for obs in range(Sensor.N_os):
+                # time.sleep(0.05)
                 ret, frame = Cam.read()
                 # frame = cv2.warpAffine(frame, T, frame.shape)
                 frame = cv2.flip(frame, 0)
                 # frame = cv2.rotate(frame, cv2.ROTATE_90_CLOCKWISE)
-                frame = ndimage.rotate(frame, -angle, reshape=False)
+                # frame = ndimage.rotate(frame, -angle, reshape=False)
                 # ims[:,:,Sensor.N_os*i+obs]= zoom(frame, zoom_factor)
                 print(f"Recording image nbr : {Sensor.N_os*i+obs}")
                 ims[:, :, Sensor.N_os*i+obs] = frame*mask
@@ -121,7 +131,7 @@ def main():
     print('\nModulated images are captured')
     # reconstruction
     # process the captured image : converting to amplitude and padding if needed
-    ims = (ims/(2**16)).astype(np.float32)
+    ims = (ims/(2**8)).astype(np.float32)
     print('\nDisplaying captured images')
     y0 = Sensor.process_ims(ims, Nx, Ny)
     # for k in range(y0.shape[2]):
@@ -138,9 +148,17 @@ def main():
     np.save("u4_est.npy", u4_est)
     T_run = time.time()-T_run_0
     # Backpropagation distance for the 2nd plot
-    z2 = 166e-3
-    u2_est = Sensor.frt_gpu(u4_est, Sensor.d_CAM, Sensor.d_CAM,
-                            Sensor.wavelength, -z2)
+    z2 = 160e-3
+    # u2_est = Sensor.frt_gpu(u4_est, Sensor.d_CAM, Sensor.d_CAM,
+    #                         Sensor.wavelength, -z2)
+    Z2 = np.linspace(95e-3, 400e-3, 25)
+    for z2 in Z2:
+        u2_est = Sensor.frt_gpu(u4_est, Sensor.d_CAM, Sensor.d_CAM,
+                                Sensor.wavelength, -z2)
+        u2_est = cp.asnumpy(u2_est)
+        plt.imshow(np.abs(u2_est))
+        plt.title(f"{1e3*z2} mm")
+        plt.show()
     u2_est = cp.asnumpy(u2_est)
     u3_est = cp.asnumpy(u3_est)
     u4_est = cp.asnumpy(u4_est)
@@ -166,7 +184,7 @@ def main():
     ax4.set_title('Phase estimation')
     im6 = ax6.imshow(np.abs(u3_est)**2, cmap='viridis', vmin=0, vmax=1)
     ax6.set_title('Back-propagated field (SLM plane)')
-    ax5.plot(np.arange(0, len(idx_converge), 1), idx_converge)
+    ax5.plot(5*np.arange(0, len(idx_converge), 1), idx_converge)
     ax5.set_title("Convergence curve")
     ax5.set_xlabel("Iteration")
     ax5.set_ylabel("RMS error of the estimated field")
