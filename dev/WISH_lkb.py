@@ -48,6 +48,8 @@ class WISH_Sensor:
         self.d_SLM = float(conf["params"]["d_SLM"])
         self.d_CAM = float(conf["params"]["d_CAM"])
         self.wavelength = float(conf["params"]["wavelength"])
+        # refractive index
+        self.n = float(conf["params"]["n"])
         # propagation distance
         self.z = float(conf["params"]["z"])
         # number of GS iterations
@@ -184,16 +186,19 @@ class WISH_Sensor:
         return I_gauss
 
     @staticmethod
-    def frt(A0: np.ndarray, d1x: float, d1y: float, wv: float, z: float):
+    def frt(A0: np.ndarray, d1x: float, d1y: float, wv: float, n: float,
+            z: float):
         """
         Implements propagation using Fresnel diffraction
         :param A0: Field to propagate
         :param d1x: Sampling size of the field A0 in the x direction
         :param d1y: Sampling size of the field A0 in the y direction
+        :param wv: Wavelength in m
+        :param n: index of refraction
         :param z : Propagation distance in metres
         :return: A : Propagated field
         """
-        k = 2*np.pi / wv
+        k = n*2*np.pi / wv
         Nx = A0.shape[1]
         Ny = A0.shape[0]
         x = np.linspace(0, Nx - 1, Nx) - (Nx / 2) * np.ones(Nx)
@@ -257,7 +262,7 @@ class WISH_Sensor:
 
     @staticmethod
     def frt_gpu_vec(A0: np.ndarray, d1x: float, d1y: float, wv: float,
-                    z: float):
+                    n: float, z: float):
         """
         Implements propagation using Fresnel diffraction. Runs on a GPU using
         CuPy with a CUDA backend.
@@ -265,10 +270,11 @@ class WISH_Sensor:
         :param d1x: Sampling size of the field A0 in the x direction
         :param d1y: Sampling size of the field A0 in the y direction
         :param wv: Wavelength in m
+        :param n: index of refraction
         :param z : Propagation distance in metres
         :return: A0 : Propagated field
         """
-        k = 2 * np.pi / wv
+        k = n*2 * np.pi / wv
         Nx = A0.shape[2]
         Ny = A0.shape[1]
         x = cp.linspace(0, Nx - 1, Nx) - (Nx / 2) * cp.ones(Nx)
@@ -371,7 +377,7 @@ class WISH_Sensor:
         :param z3: Propagation distance in metres
         :return: u3 the back propagated field
         """
-        u3 = self.frt(u4, delta4x, delta4y, self.wavelength, -z3)
+        u3 = self.frt(u4, delta4x, delta4y, self.wavelength, self.n, -z3)
         return u3
 
     def process_SLM(self, slm: np.ndarray, Nx: int, Ny: int, delta4x: float,
@@ -403,7 +409,7 @@ class WISH_Sensor:
         cdx = (np.round(Nxslm*delta_SLM/delta3x) % 2) != 0
         cdy = (np.round(Nyslm*delta_SLM/delta3y) % 2) != 0
         if cdx or cdy:
-            Z = np.linspace(self.z-2e-5, self.z+2e-5, int(1e2))
+            Z = np.linspace(self.z-1e-4, self.z+1e-4, int(1e3))
             D3x = self.wavelength * Z / (Nx * self.d_CAM)
             D3y = self.wavelength * Z / (Ny * self.d_CAM)
             X = np.round(Nxslm*self.d_SLM/D3x)
@@ -411,22 +417,22 @@ class WISH_Sensor:
             X = X % 2
             Y = Y % 2
             diff = X+Y
-            z_corr = Z[diff == np.min(diff)][0]
+            z_corr = Z[diff == 0][0]
             print(
                 "WARNING : Propagation is such that the SLM cannot be" +
                 " centered in the computational window. Distance will be set" +
                 " to closest matching distance" +
                 f" z = {np.round(z_corr*1e3, decimals=2)} mm.")
-            print("\nPlease adjust propagation distance or continue.")
-            cont = None
-            while cont is None:
-                cont = input("\nContinue ? [y/n]")
-                if cont == 'y':
-                    self.z = z_corr
-                elif cont == 'n':
-                    exit()
-                else:
-                    cont = None
+            # print("\nPlease adjust propagation distance or continue.")
+            # while cont is None:
+            #     cont = input("\nContinue ? [y/n]")
+            #     if cont == 'y':
+            #         self.z = z_corr
+            #     elif cont == 'n':
+            #         exit()
+            #     else:
+            #         cont = None
+            self.z = z_corr
         delta3x = self.wavelength * self.z / (Nx * delta4x)
         delta3y = self.wavelength * self.z / (Ny * delta4y)
         if slm.ndim == 3:
@@ -560,7 +566,7 @@ class WISH_Sensor:
         u4 = cp.zeros((Ny, Nx, N_os), dtype=cp.complex64)
         y = cp.zeros((Ny, Nx, N_os), dtype=cp.complex64)
         # initilize a3
-        k = 2 * np.pi / wvl
+        k = self.n * 2 * np.pi / wvl
         xx = cp.linspace(0, Nx - 1, Nx, dtype=cp.float32) - (Nx / 2) *\
             cp.ones(Nx, dtype=cp.float32)
         yy = cp.linspace(0, Ny - 1, Ny, dtype=cp.float32) - (Ny / 2) *\
@@ -654,7 +660,7 @@ class WISH_Sensor:
         Nim = self.Nim
         N_os = self.N_os
         N_iter = self.N_gs
-        k = 2 * np.pi / wvl
+        k = self.n * 2 * np.pi / wvl
         xx = cp.linspace(0, Nx - 1, Nx, dtype=cp.float32) - \
             (Nx / 2) * cp.ones(Nx, dtype=cp.float32)
         yy = cp.linspace(0, Ny - 1, Ny, dtype=cp.float32) - \
@@ -699,7 +705,7 @@ class WISH_Sensor:
                     cp.linalg.norm((cp.abs(U3)-y0) *
                                    (y0 > 0), axis=(1, 2))
                 idx_converge[jj//5] = cp.mean(idx_converge0)
-                prt = f"  (convergence index : {idx_converge[jj//5]})"
+                prt = f"\rGS iteration {jj + 1}  (convergence index : {idx_converge[jj//5]})"
                 sys.stdout.write(prt)
             U3 = y0 * cp.exp(1j * cp.angle(U3))  # impose the amplitude
             U3 = self.frt_gpu_vec_s(U3, delta4x, delta4y, self.wavelength,
@@ -868,17 +874,19 @@ class WISH_Sensor_cpu:
         return I_gauss
 
     @staticmethod
-    def frt(A0: np.ndarray, d1x: float, d1y: float, wv: float, z: float):
+    def frt(A0: np.ndarray, d1x: float, d1y: float, wv: float, n: float,
+            z: float):
         """
         Implements propagation using Fresnel diffraction.
         :param A0: Field to propagate
         :param d1x: Sampling size of the field A0 in the x direction
         :param d1y: Sampling size of the field A0 in the y direction
         :param wv: Wavelength in m
+        :param n: index of refraction
         :param z : Propagation distance in metres
         :return: A0 : Propagated field
         """
-        k = 2 * np.pi / wv
+        k = n * 2 * np.pi / wv
         Nx = A0.shape[1]
         Ny = A0.shape[0]
         x = np.linspace(0, Nx - 1, Nx, dtype=np.float32) -\
@@ -907,7 +915,7 @@ class WISH_Sensor_cpu:
         return A0
 
     @staticmethod
-    def frt_vec(A0: np.ndarray, d1x: float, d1y: float, wv: float,
+    def frt_vec(A0: np.ndarray, d1x: float, d1y: float, wv: float, n: float,
                 z: float):
         """
         Implements propagation using Fresnel diffraction. Vectorized.
@@ -915,6 +923,7 @@ class WISH_Sensor_cpu:
         :param d1x: Sampling size of the field A0 in the x direction
         :param d1y: Sampling size of the field A0 in the y direction
         :param wv: Wavelength in m
+        :param n: index of refraction
         :param z : Propagation distance in metres
         :return: A0 : Propagated field
         """
@@ -1021,7 +1030,7 @@ class WISH_Sensor_cpu:
         :param z3: Propagation distance in metres
         :return: u3 the back propagated field
         """
-        u3 = self.frt(u4, delta4x, delta4y, self.wavelength, -z3)
+        u3 = self.frt(u4, delta4x, delta4y, self.wavelength, self.n, -z3)
         return u3
 
     def process_SLM(self, slm: np.ndarray, Nx: int, Ny: int, delta4x: float,
@@ -1211,7 +1220,7 @@ class WISH_Sensor_cpu:
         u4 = np.zeros((Ny, Nx, N_os), dtype=np.complex64)
         y = np.zeros((Ny, Nx, N_os), dtype=np.complex64)
         # initilize a3
-        k = 2 * np.pi / wvl
+        k = self.n * 2 * np.pi / wvl
         xx = np.linspace(0, Nx - 1, Nx, dtype=np.float32) - (Nx / 2) *\
             np.ones(Nx, dtype=np.float)
         yy = np.linspace(0, Ny - 1, Ny, dtype=np.float32) - (Ny / 2) *\
@@ -1304,7 +1313,7 @@ class WISH_Sensor_cpu:
         Nim = self.Nim
         N_os = self.N_os
         N_iter = self.N_gs
-        k = 2 * np.pi / wvl
+        k = self.n * 2 * np.pi / wvl
         xx = np.linspace(0, Nx - 1, Nx, dtype=np.float32) - \
             (Nx / 2) * np.ones(Nx, dtype=np.float32)
         yy = np.linspace(0, Ny - 1, Ny, dtype=np.float32) - \
