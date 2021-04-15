@@ -154,7 +154,7 @@ def main():
     Z2 = np.linspace(95e-3, 400e-3, 25)
     for z2 in Z2:
         u2_est = Sensor.frt_gpu(u4_est, Sensor.d_CAM, Sensor.d_CAM,
-                                Sensor.wavelength, -z2)
+                                Sensor.wavelength, Sensor.n, -z2)
         u2_est = cp.asnumpy(u2_est)
         plt.imshow(np.abs(u2_est))
         plt.title(f"{1e3*z2} mm")
