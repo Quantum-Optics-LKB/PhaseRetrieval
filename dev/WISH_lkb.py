@@ -517,7 +517,7 @@ class WISH_Sensor:
             a31 = u3 * A_SLM * slm[:, :, i//N_os]
             a31 = cp.asarray(a31)  # put the field in the GPU
             a4 = self.frt_gpu(a31, delta3x, delta3y, self.wavelength, self.n,
-                              z3)
+             z3)
             w = noise * cp.random.standard_normal((Ny, Nx,), dtype=float)
             ya = cp.abs(a4)**2 + w
             ya[ya < 0] = 0
