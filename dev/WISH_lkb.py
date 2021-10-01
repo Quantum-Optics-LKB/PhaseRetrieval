@@ -49,7 +49,7 @@ class WISH_Sensor:
         self.d_CAM = float(conf["params"]["d_CAM"])
         self.wavelength = float(conf["params"]["wavelength"])
         # refractive index
-        self.n = float(conf["params"]["n"])
+        # self.n = float(conf["params"]["n"])
         # propagation distance
         self.z = float(conf["params"]["z"])
         # number of GS iterations
@@ -186,7 +186,7 @@ class WISH_Sensor:
         return I_gauss
 
     @staticmethod
-    def frt(A0: np.ndarray, d1x: float, d1y: float, wv: float, n: float,
+    def frt(A0: np.ndarray, d1x: float, d1y: float, wv: float,
             z: float):
         """
         Implements propagation using Fresnel diffraction
@@ -198,7 +198,7 @@ class WISH_Sensor:
         :param z : Propagation distance in metres
         :return: A : Propagated field
         """
-        k = n*2*np.pi / wv
+        k = 2*np.pi / wv
         Nx = A0.shape[1]
         Ny = A0.shape[0]
         x = np.linspace(0, Nx - 1, Nx) - (Nx / 2) * np.ones(Nx)
@@ -223,7 +223,7 @@ class WISH_Sensor:
         return A
 
     @staticmethod
-    def frt_gpu(A0: np.ndarray, d1x: float, d1y: float, wv: float, n: float,
+    def frt_gpu(A0: np.ndarray, d1x: float, d1y: float, wv: float,
                 z: float):
         """
         Implements propagation using Fresnel diffraction. Runs on a GPU using
@@ -236,7 +236,7 @@ class WISH_Sensor:
         :param z : Propagation distance in metres
         :return: A0 : Propagated field
         """
-        k = n * 2 * np.pi / wv
+        k = 2 * np.pi / wv
         Nx = A0.shape[1]
         Ny = A0.shape[0]
         x = cp.linspace(0, Nx - 1, Nx) - (Nx / 2) * cp.ones(Nx)
@@ -346,28 +346,21 @@ class WISH_Sensor:
         Ny = A0.shape[1]
         if z > 0:
             if plan is None:
-                A0 = cp.fft.ifftshift(A0, axes=(1, 2))
                 A0 = fftsc.fft2(A0, axes=(1, 2), overwrite_x=True)
-                A0 = cp.fft.fftshift(A0, axes=(1, 2))
                 A0 = d1x*d1y * A0
             else:
-                A0 = cp.fft.ifftshift(A0, axes=(1, 2))
                 plan.fft(A0, A0, cp.cuda.cufft.CUFFT_FORWARD)
-                A0 = cp.fft.fftshift(A0, axes=(1, 2))
                 A0 = d1x*d1y * A0
         elif z <= 0:
             if plan is None:
-                A0 = cp.fft.ifftshift(A0, axes=(1, 2))
                 A0 = fftsc.ifft2(A0, axes=(1, 2), overwrite_x=True)
-                A0 = cp.fft.fftshift(A0, axes=(1, 2))
                 A0 = (Nx*d1x*Ny*d1y) * A0
             else:
-                A0 = cp.fft.ifftshift(A0, axes=(1, 2))
                 plan.fft(A0, A0, cp.cuda.cufft.CUFFT_INVERSE)
-                A0 = cp.fft.fftshift(A0, axes=(1, 2))
                 A0 = d1x*d1y * A0
         A0 = A0 * 1 / (1j * wv * z)
         return A0
+
 
     def u4Tou3(self, u4: np.ndarray, delta4x: float, delta4y: float,
                z3: float):
@@ -379,7 +372,7 @@ class WISH_Sensor:
         :param z3: Propagation distance in metres
         :return: u3 the back propagated field
         """
-        u3 = self.frt(u4, delta4x, delta4y, self.wavelength, self.n, -z3)
+        u3 = self.frt(u4, delta4x, delta4y, self.wavelength, -z3)
         return u3
 
     def process_SLM(self, slm: np.ndarray, Nx: int, Ny: int, delta4x: float,
@@ -456,7 +449,9 @@ class WISH_Sensor:
                     slm1 = np.pad(slm1, ((pady, pady), (padx, padx)))
                 slm3[:, :, i] = slm1
             if type == "phi":
-                SLM = np.exp(1j * 2 * np.pi * slm3).astype(np.complex64)
+                SLM = (np.exp(1j * 2 * np.pi * slm3)*(slm3 != 0)).astype(np.complex64) +\
+                      (np.zeros(slm3.shape)*(slm3 == 0)).astype(np.complex64)
+                # SLM = np.exp(1j * 2 * np.pi * slm3).astype(np.complex64)
             elif type == "amp":
                 SLM = slm3.astype(np.complex64)
             else:
@@ -516,13 +511,15 @@ class WISH_Sensor:
             sys.stdout.flush()
             a31 = u3 * A_SLM * slm[:, :, i//N_os]
             a31 = cp.asarray(a31)  # put the field in the GPU
-            a4 = self.frt_gpu(a31, delta3x, delta3y, self.wavelength, self.n,
-             z3)
-            w = noise * cp.random.standard_normal((Ny, Nx,), dtype=float)
-            ya = cp.abs(a4)**2 + w
-            ya[ya < 0] = 0
-            # ya = shift_cp(ya, (1*cp.random.standard_normal(1, dtype=float),
-            #               1*cp.random.standard_normal(1, dtype=float)))
+            a4 = self.frt_gpu(a31, delta3x, delta3y, self.wavelength,
+                              z3)
+            ya = cp.abs(a4)**2
+            if noise > 0.0:
+                w = noise * cp.random.standard_normal((Ny, Nx,), dtype=float)
+                ya += w
+                ya = shift_cp(ya, (1*cp.random.standard_normal(1, dtype=float),
+                              1*cp.random.standard_normal(1, dtype=float)))
+                ya[ya < 0] = 0
             ims[:, :, i] = cp.asnumpy(ya)
             del a31, a4, ya
         return ims
@@ -663,7 +660,7 @@ class WISH_Sensor:
         Nim = self.Nim
         N_os = self.N_os
         N_iter = self.N_gs
-        k = self.n * 2 * np.pi / wvl
+        k = 2 * np.pi / wvl
         xx = cp.linspace(0, Nx - 1, Nx, dtype=cp.float32) - \
             (Nx / 2) * cp.ones(Nx, dtype=cp.float32)
         yy = cp.linspace(0, Ny - 1, Ny, dtype=cp.float32) - \
@@ -680,7 +677,7 @@ class WISH_Sensor:
         y0 = y0.transpose(2, 0, 1)
         for ii in range(N_os):
             y0_batch = y0[ii, :, :]
-            SLM_batch = y0[ii, :, :]
+            SLM_batch = SLM[ii, :, :]
             U3[ii, :, :] = self.frt_gpu_s(y0_batch / Q, delta4x, delta4y,
                                           self.wavelength, -z3) *\
                 cp.conj(SLM_batch)  # y0_batch gpu
@@ -697,6 +694,10 @@ class WISH_Sensor:
                                         order='C', last_axis=-1,
                                         last_size=None)
         T_run_0 = time.time()
+        # fftshift first 
+        SLM = cp.fft.ifftshift(SLM, axes=(1, 2))
+        u3 = cp.fft.ifftshift(u3)
+        y0 = cp.fft.fftshift(y0, axes=(1, 2))
         for jj in range(N_iter):
             sys.stdout.flush()
             # on the sensor
@@ -729,6 +730,8 @@ class WISH_Sensor:
                     break
             if jj == N_iter-1:
                 print('\nMax iteration number reached. Exit ...')
+        # fftshift
+        u3 = cp.fft.fftshift(u3)
         # propagate solution to sensor plane
         u4_est = self.frt_gpu_s(u3, delta3x, delta3y, self.wavelength, z3) * Q
         T_run = time.time()-T_run_0
@@ -877,7 +880,7 @@ class WISH_Sensor_cpu:
         return I_gauss
 
     @staticmethod
-    def frt(A0: np.ndarray, d1x: float, d1y: float, wv: float, n: float,
+    def frt(A0: np.ndarray, d1x: float, d1y: float, wv: float,
             z: float):
         """
         Implements propagation using Fresnel diffraction.
@@ -889,7 +892,7 @@ class WISH_Sensor_cpu:
         :param z : Propagation distance in metres
         :return: A0 : Propagated field
         """
-        k = n * 2 * np.pi / wv
+        k = 2 * np.pi / wv
         Nx = A0.shape[1]
         Ny = A0.shape[0]
         x = np.linspace(0, Nx - 1, Nx, dtype=np.float32) -\
@@ -918,7 +921,7 @@ class WISH_Sensor_cpu:
         return A0
 
     @staticmethod
-    def frt_vec(A0: np.ndarray, d1x: float, d1y: float, wv: float, n: float,
+    def frt_vec(A0: np.ndarray, d1x: float, d1y: float, wv: float,
                 z: float):
         """
         Implements propagation using Fresnel diffraction. Vectorized.
@@ -1001,24 +1004,16 @@ class WISH_Sensor_cpu:
         Ny = A0.shape[1]
         if z > 0:
             if fft is None:
-                A0 = np.fft.ifftshift(A0, axes=(1, 2))
                 A0 = mkl_fft.fft2(A0, axes=(1, 2), overwrite_x=True)
-                A0 = np.fft.fftshift(A0, axes=(1, 2))
             else:
-                A0 = np.fft.ifftshift(A0, axes=(1, 2))
                 A0 = fft(A0)
-                A0 = np.fft.fftshift(A0, axes=(1, 2))
             A0 = d1x*d1y * A0
 
         elif z <= 0:
             if fft is None:
-                A0 = np.fft.ifftshift(A0, axes=(1, 2))
                 A0 = mkl_fft.ifft2(A0, axes=(1, 2), overwrite_x=True)
-                A0 = np.fft.fftshift(A0, axes=(1, 2))
             else:
-                A0 = np.fft.ifftshift(A0, axes=(1, 2))
                 A0 = fft(A0)
-                A0 = np.fft.fftshift(A0, axes=(1, 2))
             A0 = (Nx*d1x*Ny*d1y) * A0
         A0 = A0 * 1 / (1j * wv * z)
         return A0
@@ -1033,7 +1028,7 @@ class WISH_Sensor_cpu:
         :param z3: Propagation distance in metres
         :return: u3 the back propagated field
         """
-        u3 = self.frt(u4, delta4x, delta4y, self.wavelength, self.n, -z3)
+        u3 = self.frt(u4, delta4x, delta4y, self.wavelength, -z3)
         return u3
 
     def process_SLM(self, slm: np.ndarray, Nx: int, Ny: int, delta4x: float,
@@ -1316,7 +1311,7 @@ class WISH_Sensor_cpu:
         Nim = self.Nim
         N_os = self.N_os
         N_iter = self.N_gs
-        k = self.n * 2 * np.pi / wvl
+        k = 2 * np.pi / wvl
         xx = np.linspace(0, Nx - 1, Nx, dtype=np.float32) - \
             (Nx / 2) * np.ones(Nx, dtype=np.float32)
         yy = np.linspace(0, Ny - 1, Ny, dtype=np.float32) - \
@@ -1335,19 +1330,19 @@ class WISH_Sensor_cpu:
         pyfftw.import_wisdom(fft_wisdom)
         fft_obj = pyfftw.builders.fft2(U3, axes=(1, 2),
                                        overwrite_input=True,
-                                       threads=multiprocessing.cpu_count(),
+                                       threads=multiprocessing.cpu_count()//2,
                                        planner_effort="FFTW_PATIENT")
         ifft_obj = pyfftw.builders.ifft2(y, axes=(1, 2),
                                          overwrite_input=True,
-                                         threads=multiprocessing.cpu_count(),
+                                         threads=multiprocessing.cpu_count()//2,
                                          planner_effort="FFTW_PATIENT")
         fft_wisdom = pyfftw.export_wisdom()
         with open('fft_wisdom.pickle', 'wb') as f:
             pickle.dump(fft_wisdom, f)
-        y = y0.transpose(2, 0, 1)
+        y0 = y0.transpose(2, 0, 1)
         for ii in range(N_os):
-            y_batch = y[ii, :, :]
-            SLM_batch = y[ii, :, :]
+            y_batch = y0[ii, :, :]
+            SLM_batch = SLM[ii, :, :]
             U3[ii, :, :] = self.frt_s(y_batch / Q, delta4x, delta4y,
                                       self.wavelength, -z3)*np.conj(SLM_batch)
         u3 = np.mean(U3[0:N_os, :, :], 0)
@@ -1355,19 +1350,23 @@ class WISH_Sensor_cpu:
         # Recon run : GS loop
         idx_converge = np.empty(N_iter//5)
         T_run_0 = time.time()
+        # fftshift first 
+        SLM = np.fft.ifftshift(SLM, axes=(1, 2))
+        u3 = np.fft.ifftshift(u3)
+        y0 = np.fft.fftshift(y0, axes=(1, 2)) 
         for jj in range(N_iter):
             sys.stdout.flush()
             # on the sensor
-            U3 = self.frt_vec_s((SLM * u3), delta3x, delta3y, self.wavelength,
+            U3 = self.frt_vec_s(SLM * u3, delta3x, delta3y, self.wavelength,
                                 z3, fft=fft_obj)
             # convergence index matrix for every 5 iterations
             if jj % 5 == 0:
                 idx_converge0 = (1 / np.sqrt(Nx*Ny)) * \
-                    np.linalg.norm((np.abs(U3)-y) * (y > 0), axis=(1, 2))
+                    np.linalg.norm((np.abs(U3)-y0) * (y0 > 0), axis=(1, 2))
                 idx_converge[jj//5] = np.mean(idx_converge0)
-                prt = f"  (convergence index : {idx_converge[jj//5]})"
+                prt = f"\rGS iteration {jj + 1}  (convergence index : {idx_converge[jj//5]})"
                 sys.stdout.write(prt)
-            U3 = y * np.exp(1j * np.angle(U3))  # impose the amplitude
+            U3 = y0 * np.exp(1j * np.angle(U3))  # impose the amplitude
             U3 = self.frt_vec_s(U3, delta4x, delta4y, self.wavelength, -z3,
                                 fft=ifft_obj) * np.conj(SLM)
             u3 = np.mean(U3, 0)  # average over batches
@@ -1380,6 +1379,8 @@ class WISH_Sensor_cpu:
                     print('\nConverged. Exit the GS loop ...')
                     idx_converge = idx_converge[0:jj//5]
                     break
+        # fftshift
+        u3 = np.fft.fftshift(u3)
         # propagate solution to sensor plane
         u4_est = self.frt_s(u3, delta3x, delta3y, self.wavelength, z3) * Q
         T_run = time.time()-T_run_0

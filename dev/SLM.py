@@ -1,66 +1,59 @@
 # -*- coding: utf-8 -*-
 """
-Created by Tangui Aladjidi at 16/06/2020
+Created by Tangui Aladjidi at 19/03/2021
 """
 
-import matplotlib.pyplot as plt
-import matplotlib as mpl
-from PyQt5.QtCore import *
-from PyQt5.QtWidgets import *
-from PyQt5.QtGui import *
+import cv2
 import numpy as np
-import time
-from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
-plt.switch_backend("QT5Agg")
 
+class SLM:
+    def __init__(self, resX:int, resY:int, name: str="SLM"):
+        """Initializes the SLM screen
 
-class SLMscreen:
-
-    def __init__(self, resX, resY):
-        plt.ioff()
+        Args:
+            resX (int): Resolution along x axis
+            resY (int): Resolution along y axis
+            name (str, optional): Name of the SLM window. Defaults to "SLM".
         """
-        Initializes the window to be displayed on the SLM
-        :param resX: Width in pixel
-        :param resY: Height in pixel
-        """
-        # dirty way of finding the primary screen size, could be improved
-        app = QApplication([])
-        screen_resolution = app.desktop().screenGeometry()
-        width, height = screen_resolution.width(), screen_resolution.height()
-        mpl.rcParams['toolbar'] = 'None'
-        mpl.rcParams['image.interpolation'] = 'None'
-        mpl.rcParams['image.resample'] = False
-        self.fig = plt.figure(0, figsize=(resX / 100, resY / 100), frameon=False)
-        self.ax = plt.axes([0, 0, 1, 1], frameon=False)
-        self.ax.get_xaxis().set_visible(False)
-        self.ax.get_yaxis().set_visible(False)
-        self.im = self.ax.imshow(np.zeros((resY, resX), dtype='uint8'), cmap='gray', aspect='equal', vmin=0, vmax=255)
-        self.window = self.fig.canvas.window()
-        self.window.setWindowFlags(Qt.FramelessWindowHint | Qt.CustomizeWindowHint)
-        self.window.setGeometry(width, 0, resX, resY)
-        self.window.statusBar().setVisible(False)
-        self.window.showMaximized()
-        #this is ugly but else you need to update it twice before it works fine
-        self.update(np.zeros((resY, resX), dtype='uint8'))
-        self.update(np.zeros((resY, resX), dtype='uint8'))
+        self.name = name
+        cv2.namedWindow(name, cv2.WND_PROP_FULLSCREEN)
+        cv2.moveWindow(name, resX, 0)
+        cv2.setWindowProperty(name, cv2.WND_PROP_FULLSCREEN,
+                                cv2.WINDOW_FULLSCREEN)
+        self.update(np.ones((resY, resX), dtype=np.uint8))
+    def update(self, A: np.ndarray, delay: int=1):
+        """Updates the pattern on the SLM
 
-    def update(self, array, sleep=0.01):
+        Args:
+            A (np.ndarray): Array
+            delay (int, optional): Delay in ms. Defaults to 1.
         """
-        Displays the array on the SLM
-        :param array: np.ndarray
-        """
-        self.fig.canvas.flush_events()
-        self.im.set_data(array)
-        self.fig.canvas.draw()
-        self.window.showMaximized()
-        time.sleep(sleep)
-
+        assert A.dtype == np.uint8, "Only 8 bits patterns are supported by the SLM !"
+        cv2.imshow(self.name, A)
+        cv2.waitKey(1+delay)
     def close(self):
-        """
-        Closes the SLM window and resets the matplotlib rcParams parameters
-        :return:
-        """
-        plt.close(self.fig)
-        mpl.rcParams['toolbar'] = 'toolbar2'
-        mpl.rcParams['image.interpolation'] = 'None'
-        mpl.rcParams['image.resample'] = False
+        cv2.destroyWindow(self.name)
+
+def main():
+    import sys
+    import time
+    resX, resY = 1920, 1080
+    slm = SLM(resX, resY)
+    T = np.zeros(20)
+    for i in range(20):
+        sys.stdout.flush()
+        one = np.ones((resY, resX), dtype=np.uint8)
+        slm_pic = (i % 2)*one[:, 0:resX//2] + \
+                ((i+1) % 2)*255*one[:, resX//2:]
+        t0 = time.time()
+        slm.update(slm_pic, delay=250)
+        t = time.time()-t0
+        T[i] = t
+        sys.stdout.write(f"\r{i+1} : time displayed = {t} s")
+    slm.close()
+
+    print(f"\nAverage display time = {np.mean(T)} ({np.std(T)}) s")
+
+if __name__ == "__main__":
+    main()
+    
