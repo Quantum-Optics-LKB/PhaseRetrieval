@@ -323,13 +323,13 @@ class WISH_Sensor:
             A0 = cp.fft.ifftshift(A0, axes=(0, 1))
             A0 = fftsc.fft2(A0, axes=(0, 1), overwrite_x=True)
             A0 = cp.fft.fftshift(A0, axes=(0, 1))
-            A0 = d1x*d1y * A0
+            A0 *= d1x*d1y 
         elif z <= 0:
             A0 = cp.fft.ifftshift(A0, axes=(0, 1))
             A0 = fftsc.ifft2(A0, axes=(0, 1), overwrite_x=True)
             A0 = cp.fft.fftshift(A0, axes=(0, 1))
-            A0 = (Nx*d1x*Ny*d1y) * A0
-        A0 = A0 * 1 / (1j * wv * z)
+            A0 *= (Nx*d1x*Ny*d1y) 
+        A0 *= 1 / (1j * wv * z)
         return A0
 
     @staticmethod
@@ -513,7 +513,7 @@ class WISH_Sensor:
             sys.stdout.write(f"\rGenerating image {i+1} out of {Nim} ...")
             sys.stdout.flush()
             a31 = u3 * A_SLM * slm[:, :, i//N_os]
-            a31 = cp.asarray(a31)  # put the field in the GPU
+            a31 = cp.asarray(a31, dtype=cp.complex64)  # put the field in the GPU
             a4 = self.frt_gpu(a31, delta3x, delta3y, self.wavelength,
                               z3)
             ya = cp.abs(a4)**2
@@ -681,6 +681,7 @@ class WISH_Sensor:
         :return u3_est, u4_est, idx_converge: Estimated fields of size (Ny,Nx)
         and the convergence indices to check convergence speed
         """
+        
         wvl = self.wavelength
         # parameters
         Nx = y0.shape[1]
@@ -722,17 +723,17 @@ class WISH_Sensor:
         t_exec_cpu = np.empty(N_iter, dtype=np.float64)
         t_exec_gpu = np.empty_like(t_exec_cpu)
         for jj in range(N_iter):
-            sys.stdout.flush()
+            # sys.stdout.flush()
             # start_gpu = cp.cuda.Event()
             # end_gpu = cp.cuda.Event()
             # start_gpu.record()
-            t0 = time.perf_counter()
+            # t0 = time.perf_counter()
             self.do_GS_step(y0, SLM, u3, delta3x, delta3y, delta4x, delta4y,
                             plan_fft=plan_fft)
-            t1 = time.perf_counter()
+            # t1 = time.perf_counter()
             # end_gpu.record()
             # end_gpu.synchronize()
-            t_exec_cpu[jj] = t1-t0
+            # t_exec_cpu[jj] = t1-t0
             # t_exec_gpu[jj] = cp.cuda.get_elapsed_time(start_gpu, end_gpu)*1e-3
             # convergence index matrix for every 5 iterations
             # if jj % 5 == 0:
@@ -742,7 +743,7 @@ class WISH_Sensor:
             #     idx_converge[jj//5] = cp.mean(idx_converge0)
             #     prt = f"\rGS iteration {jj + 1}  (convergence index : {idx_converge[jj//5]})"
             #     sys.stdout.write(prt)
-            sys.stdout.write(f"\rGS iteration {jj + 1}")
+            # sys.stdout.write(f"\rGS iteration {jj + 1}")
             # exit if the matrix doesn't change much
             # if (jj > 1) & (jj % 5 == 0):
             #     eps = cp.abs(idx_converge[jj//5] - idx_converge[jj//5 - 1]) / \
@@ -754,8 +755,8 @@ class WISH_Sensor:
             #         # idx_converge = idx_converge[0:jj]
             #         idx_converge = cp.asnumpy(idx_converge[0:jj//5])
             #         break
-            if jj == N_iter-1:
-                print('\nMax iteration number reached. Exit ...')
+            # if jj == N_iter-1:
+            #     print('\nMax iteration number reached. Exit ...')
         # optional profiling
         # t_exec = repeat_c(self.do_GS_step, (y0, SLM, u3, delta3x, delta3y, delta4x, delta4y,
         #                     plan_fft), n_repeat=N_iter)
@@ -764,16 +765,19 @@ class WISH_Sensor:
         # fftshift
         u3 = cp.fft.fftshift(u3)
         # propagate solution to sensor plane
-        u4_est = self.frt_gpu_s(u3, delta3x, delta3y, self.wavelength, self.z) * Q
         T_run = time.time()-T_run_0
+        u4_est = self.frt_gpu_s(u3, delta3x, delta3y, self.wavelength, self.z) * Q
         print(f"\n Time spent in the GS loop : {T_run} s")
-        plt.plot(t_exec_cpu)
+        # plt.plot(t_exec_cpu)
         # plt.plot(t_exec_gpu)
-        plt.ylabel("Time in s")
-        plt.xlabel("Iteration")
-        plt.title("Run time")
-        plt.yscale("log")
-        # plt.legend(["CPU", "GPU"])
+        # plt.plot(np.cumsum(t_exec_cpu))
+        # plt.plot(np.cumsum(t_exec_gpu))
+        # plt.plot(np.cumsum(t_exec_cpu+t_exec_gpu))
+        # plt.ylabel("Time in s")
+        # plt.xlabel("Iteration")
+        # plt.title("Run time")
+        # plt.yscale("log")
+        # plt.legend(["CPU", "GPU", "Cumulative CPU", "Cumulative GPU", "Cumulative tot"])
         return u3, u4_est, idx_converge
 
 
