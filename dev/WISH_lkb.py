@@ -24,6 +24,7 @@ import mkl_fft
 import multiprocessing
 import time
 import pickle
+from ctypes import c_int
 
 pyfftw.config.NUM_THREADS = multiprocessing.cpu_count()
 pyfftw.config.PLANNER_EFFORT = 'FFTW_ESTIMATE'
@@ -43,6 +44,24 @@ This usually happens after waking up you computer. A CPU version of the code is
 also available WISH_lkb_cpu.py
 """
 
+# #Kernel for amplitude imposing and multplication / conjugation
+# with open("kernels.cu") as file:
+#     code = file.read()
+#     kernels = cp.RawModule(code=code, backend="nvcc")
+#     kernels.compile()
+#     ker_impose_amp = kernels.get_function("impose_amp")
+#     ker_multiply_conjugate = kernels.get_function("multiply_conjugate")
+    # gpu_frt = kernels.get_function('frt_gpu_vec_s')
+# kernels = cp.RawModule(path="kernels", options=("--use_fast_math",), backend="nvcc")
+# ker_impose_amp = kernels.get_function("impose_amp")
+# ker_multiply_conjugate = kernels.get_function("multiply_conjugate")
+@cp.fuse()
+def ker_impose_amp(y, x):
+    x[:] = cp.abs(y) * cp.exp(1j*cp.angle(x))
+
+@cp.fuse()
+def ker_multiply_conjugate(y, x):
+    x[:] *= cp.conj(y)
 
 class WISH_Sensor:
     def __init__(self, cfg_path):
@@ -345,8 +364,9 @@ class WISH_Sensor:
         :param z : Propagation distance in metres
         :return: A : Propagated field
         """
-        Nx = A0.shape[2]
-        Ny = A0.shape[1]
+        if plan is None:
+            Nx = A0.shape[2]
+            Ny = A0.shape[1]
         if z > 0:
             if plan is None:
                 A0 = fftsc.fft2(A0, axes=(1, 2), overwrite_x=True)
@@ -362,7 +382,6 @@ class WISH_Sensor:
                 plan.fft(A0, A0, cp.cuda.cufft.CUFFT_INVERSE)
                 A0 *= d1x*d1y 
         A0 *= 1 / (1j * wv * z)
-        # return A0
 
 
     def u4Tou3(self, u4: np.ndarray, delta4x: float, delta4y: float,
@@ -658,16 +677,53 @@ class WISH_Sensor:
             delta4y (float): Camera plane pitch along y
             plan_fft (cufft_fft_plan, optional): FFT Plan. Defaults to None.
         """
+        block = (8, 8, 8)
+        grid = (SLM.shape[0]//block[0], SLM.shape[1]//block[1], SLM.shape[2]//block[2])
         U3 = SLM * u3
         self.frt_gpu_vec_s(U3, delta3x, delta3y,
                                 self.wavelength, self.z, plan=plan_fft)
-        U3 = y0 * cp.exp(1j * cp.angle(U3))  # impose the amplitude
+        # U3 = y0 * cp.exp(1j*cp.angle(U3))
+        # ker_impose_amp(grid, block, (y0, U3, U3.shape[0], U3.shape[1], U3.shape[2]))
+        ker_impose_amp(y0, U3)
         self.frt_gpu_vec_s(U3, delta4x, delta4y, self.wavelength,
                                 -self.z, plan=plan_fft)
-        U3 *= cp.conj(SLM)
+        # U3 *= cp.conj(SLM)
+        ker_multiply_conjugate(SLM, U3)
         u3[:] = cp.mean(U3, 0)  # average over batches
-        
-    
+
+    def do_GS_step_fast(self, y0: np.ndarray, SLM: np.ndarray,
+                    u3: np.ndarray, delta3x: float, delta3y: float, 
+                    delta4x: float, delta4y: float, plan):  
+        """Does one step of the GS loop in place, faster provided you have a plan ...
+
+        Args:
+            y0 (np.ndarray): Target intensity vector
+            SLM (np.ndarray): SLM patterns
+            U3 (np.ndarray): Circulating fields
+            u3 (np.ndarray): Current estimation
+            delta3x (float): SLM plane pitch along x
+            delta3y (float): SLM plane pitch along y
+            delta4x (float): Camera plane pitch along x
+            delta4y (float): Camera plane pitch along y
+            plan_fft (cufft_fft_plan): FFT Plan. 
+        """
+        grid = (8, 1024, 2)
+        block = (512,)
+        norm_f = (delta3x*delta3y)/(1j * self.wavelength * self.z)
+        norm_i = (delta3x*delta3y)/(-1j * self.wavelength * self.z)
+        U3 = SLM * u3
+        # self.frt_gpu_vec_s(U3, delta3x, delta3y,
+        #                         self.wavelength, self.z, plan=plan)
+        plan.fft(U3, U3, cp.cuda.cufft.CUFFT_FORWARD) 
+        ker_impose_amp(norm_f*y0, U3)
+        # self.frt_gpu_vec_s(U3, delta4x, delta4y, self.wavelength,
+        #                         -self.z, plan=plan)
+        plan.fft(U3, U3, cp.cuda.cufft.CUFFT_INVERSE) 
+        # U3 *= cp.conj(SLM)
+        ker_multiply_conjugate(norm_i*SLM, U3)
+        u3[:] = cp.mean(U3, 0)  # average over batches
+
+
     def WISHrun_vec(self, y0: np.ndarray, SLM: np.ndarray, delta3x: float,
                     delta3y: float, delta4x: float, delta4y: float):
         """
@@ -715,55 +771,57 @@ class WISH_Sensor:
         # GS loop
         idx_converge = np.empty(N_iter//5)
         plan_fft = get_fft_plan(U3, axes=(1, 2), value_type='C2C')
+        # gpu_frt(cp.empty((3,3,3), dtype=cp.complex64), 1.0, 1.0, 1.0, 1.0, plan_fft)
         T_run_0 = time.time()
         # fftshift first 
         SLM = cp.fft.ifftshift(SLM, axes=(1, 2))
         u3 = cp.fft.ifftshift(u3)
         y0 = cp.fft.fftshift(y0, axes=(1, 2))
-        t_exec_cpu = np.empty(N_iter, dtype=np.float64)
-        t_exec_gpu = np.empty_like(t_exec_cpu)
-        for jj in range(N_iter):
-            # sys.stdout.flush()
-            # start_gpu = cp.cuda.Event()
-            # end_gpu = cp.cuda.Event()
-            # start_gpu.record()
-            # t0 = time.perf_counter()
-            self.do_GS_step(y0, SLM, u3, delta3x, delta3y, delta4x, delta4y,
-                            plan_fft=plan_fft)
-            # t1 = time.perf_counter()
-            # end_gpu.record()
-            # end_gpu.synchronize()
-            # t_exec_cpu[jj] = t1-t0
-            # t_exec_gpu[jj] = cp.cuda.get_elapsed_time(start_gpu, end_gpu)*1e-3
-            # convergence index matrix for every 5 iterations
-            # if jj % 5 == 0:
-            #     idx_converge0 = (1 / np.sqrt(Nx*Ny)) * \
-            #         cp.linalg.norm((cp.abs(U3)-y0) *
-            #                        (y0 > 0), axis=(1, 2))
-            #     idx_converge[jj//5] = cp.mean(idx_converge0)
-            #     prt = f"\rGS iteration {jj + 1}  (convergence index : {idx_converge[jj//5]})"
-            #     sys.stdout.write(prt)
-            # sys.stdout.write(f"\rGS iteration {jj + 1}")
-            # exit if the matrix doesn't change much
-            # if (jj > 1) & (jj % 5 == 0):
-            #     eps = cp.abs(idx_converge[jj//5] - idx_converge[jj//5 - 1]) / \
-            #         idx_converge[jj//5]
-            #     if eps < 1e-3:
-            #         # if cp.abs(idx_converge[jj]) < 5e-6:
-            #         # if idx_converge[jj]>idx_converge[jj-1]:
-            #         print('\nConverged. Exit the GS loop ...')
-            #         # idx_converge = idx_converge[0:jj]
-            #         idx_converge = cp.asnumpy(idx_converge[0:jj//5])
-            #         break
-            # if jj == N_iter-1:
-            #     print('\nMax iteration number reached. Exit ...')
-        # optional profiling
-        # t_exec = repeat_c(self.do_GS_step, (y0, SLM, u3, delta3x, delta3y, delta4x, delta4y,
-        #                     plan_fft), n_repeat=N_iter)
-        # t_exec_cpu = t_exec.cpu_times
-        # t_exec_gpu = t_exec.gpu_times[0, :]
-        # fftshift
-        u3 = cp.fft.fftshift(u3)
+        with cp.cuda.profile():
+            for jj in range(N_iter):
+                # sys.stdout.flush()
+                # start_gpu = cp.cuda.Event()
+                # end_gpu = cp.cuda.Event()
+                # start_gpu.record()
+                # t0 = time.perf_counter()
+                # self.do_GS_step(y0, SLM, u3, delta3x, delta3y, delta4x, delta4y,
+                #                 plan_fft=plan_fft)
+                self.do_GS_step_fast(y0, SLM, u3, delta3x, delta3y, delta4x, delta4y,
+                                     plan_fft)
+                # t1 = time.perf_counter()
+                # end_gpu.record()
+                # end_gpu.synchronize()
+                # t_exec_cpu[jj] = t1-t0
+                # t_exec_gpu[jj] = cp.cuda.get_elapsed_time(start_gpu, end_gpu)*1e-3
+                # convergence index matrix for every 5 iterations
+                # if jj % 5 == 0:
+                #     idx_converge0 = (1 / np.sqrt(Nx*Ny)) * \
+                #         cp.linalg.norm((cp.abs(U3)-y0) *
+                #                        (y0 > 0), axis=(1, 2))
+                #     idx_converge[jj//5] = cp.mean(idx_converge0)
+                #     prt = f"\rGS iteration {jj + 1}  (convergence index : {idx_converge[jj//5]})"
+                #     sys.stdout.write(prt)
+                # sys.stdout.write(f"\rGS iteration {jj + 1}")
+                # exit if the matrix doesn't change much
+                # if (jj > 1) & (jj % 5 == 0):
+                #     eps = cp.abs(idx_converge[jj//5] - idx_converge[jj//5 - 1]) / \
+                #         idx_converge[jj//5]
+                #     if eps < 1e-3:
+                #         # if cp.abs(idx_converge[jj]) < 5e-6:
+                #         # if idx_converge[jj]>idx_converge[jj-1]:
+                #         print('\nConverged. Exit the GS loop ...')
+                #         # idx_converge = idx_converge[0:jj]
+                #         idx_converge = cp.asnumpy(idx_converge[0:jj//5])
+                #         break
+                # if jj == N_iter-1:
+                #     print('\nMax iteration number reached. Exit ...')
+            # optional profiling
+            # t_exec = repeat_c(self.do_GS_step, (y0, SLM, u3, delta3x, delta3y, delta4x, delta4y,
+            #                     plan_fft), n_repeat=N_iter)
+            # t_exec_cpu = t_exec.cpu_times
+            # t_exec_gpu = t_exec.gpu_times[0, :]
+            # fftshift
+            u3 = cp.fft.fftshift(u3)
         # propagate solution to sensor plane
         T_run = time.time()-T_run_0
         u4_est = self.frt_gpu_s(u3, delta3x, delta3y, self.wavelength, self.z) * Q
