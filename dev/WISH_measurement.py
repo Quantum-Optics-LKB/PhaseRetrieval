@@ -12,18 +12,21 @@ import cupy as cp
 from scipy.ndimage import zoom
 from WISH_lkb import WISH_Sensor
 from PIL import Image
-from SLM import SLMscreen
-import slmpy
+from SLM import SLM
 import cv2
+from hamamatsu.dcam import dcam, Stream, copy_frame
 import EasyPySpin
+import PySpin
+import pycrafter6500
 from scipy import ndimage
+import sys
 
 # plt.switch_backend("QT5Agg")
 
 # WISH routine
 
 
-def alignment(frame):
+def alignment(frame) -> np.ndarray:
     """
     Detects the center of a frame provided the beam is circular
     :param frame: Input frame
@@ -39,6 +42,115 @@ def alignment(frame):
                     [0, 1, int(frame.shape[0]/2) - cY]])
     return T
 
+def capture_ims_flir(Sensor: WISH_Sensor, slm_type: str) -> np.ndarray:
+    # Setting up the camera for acquisition
+    Cam = EasyPySpin.VideoCapture(0)
+    Nx = int(Cam.get(cv2.CAP_PROP_FRAME_WIDTH))
+    Ny = int(Cam.get(cv2.CAP_PROP_FRAME_HEIGHT))    
+    delta3x = Sensor.wavelength * Sensor.z / (Nx * Sensor.d_CAM)
+    delta3y = Sensor.wavelength * Sensor.z / (Ny * Sensor.d_CAM)
+    ims = np.zeros((Ny, Nx, Sensor.Nim))
+    if slm_type == 'DMD':
+        # camera trig for DMD ?
+        resX, resY = 1920, 1080
+        slm = np.zeros((resY, resX, Sensor.N_mod), dtype=np.uint8)
+        for i in range(0, Sensor.N_mod//2):
+            slm[:, :, 2 * i] = 2*Sensor.modulate_binary((1080, 1920), pxsize=1)
+            slm[:, :, 2 * i + 1] = np.ones((1080, 1920)) - slm[:, :, 2 * i]
+        slm_to_display = slm.repeat(Sensor.N_os, axis=2)
+        dlp = pycrafter6500.dmd()
+        # Load images into DMD
+        images = [slm_to_display[:, :, i].astype(np.uint8) for i in range(slm.shape[2])]
+        del slm_to_display
+        dlp.stopsequence() # stop the current sequence
+        dlp.changemode(3) # change mode to "pattern on the fly"
+        exposure=[5000]
+        dark_time=[0]
+        trigger_in=[False]
+        trigger_out=[105]
+        dlp.defsequence(images,exposure,trigger_in,dark_time,trigger_out,0)
+        for i in range(Sensor.Nim):
+            dlp.startsequence()
+            time.sleep(50e-6) # roughly half of the shortest exposure time
+            ret, frame = Cam.read()
+            dlp.pausesequence()
+            ims[:, :, i] = frame
+    elif slm_type == 'SLM':
+        resX, resY = 1920, 1080
+        corr = np.zeros((resY, resX))
+        slm = np.zeros((resY, resX, Sensor.N_mod), dtype=np.uint8)
+        for i in range(slm.shape[2]):
+            slm[:, :, i] = Sensor.modulate((resY, resX), pxsize=8)
+        slm_display = SLM(resX, resY)
+        for i in range(Sensor.N_mod):
+            slm_pic = (250*((1/255)*(256*slm[:, :, i]-corr)%256)).astype('uint8')
+            slm_display.update(slm_pic)
+            for obs in range(Sensor.N_os):
+                ret, frame = Cam.read()
+                ims[:, :, Sensor.N_os*i + obs] = frame
+        slm_display.close()
+    Cam.release()
+    return ims, slm, Nx, Ny
+
+
+def capture_ims_hamamatsu(Sensor: WISH_Sensor, slm_type: str) -> np.ndarray:
+    # Setting up the camera for acquisition
+    with dcam:
+        camera = dcam[0]
+        with camera:
+            Nx, Ny = camera['image_width'].value, camera['image_height'].value
+    delta3x = Sensor.wavelength * Sensor.z / (Nx * Sensor.d_CAM)
+    delta3y = Sensor.wavelength * Sensor.z / (Ny * Sensor.d_CAM)
+    ims = np.zeros((Ny, Nx, Sensor.Nim))
+    if slm_type == 'DMD':
+        resX, resY = 1920, 1080
+        # if N_os > 1, slm needs to be of size (Ny, Nx, Nim)
+        slm = np.zeros((resY, resX, Sensor.N_mod), dtype=np.uint8)
+        for i in range(0, Sensor.N_mod//2):
+            slm[:, :, 2 * i] = 2*Sensor.modulate_binary((1080, 1920), pxsize=1)
+            slm[:, :, 2 * i + 1] = np.ones((1080, 1920)) - slm[:, :, 2 * i]
+        slm_to_display = slm.repeat(Sensor.N_os, axis=2)
+        dlp = pycrafter6500.dmd()
+        # Load images into DMD
+        images = [slm_to_display[:, :, i].astype(np.uint8) for i in range(slm.shape[2])]
+        del slm_to_display
+        dlp.stopsequence() # stop the current sequence
+        dlp.changemode(3) # change mode to "pattern on the fly"
+        exposure=[50000]
+        dark_time=[0]
+        trigger_in=[False]
+        trigger_out=[105]
+        print(f"Loading images on the DMD ...")
+        dlp.defsequence(images,exposure,trigger_in,dark_time,trigger_out,0)
+        with dcam:
+            camera = dcam[0]
+            with camera:
+                print(f"Acquiring images ...")
+                with Stream(camera, Sensor.Nim) as stream:
+                    dlp.startsequence()
+                    camera.start() #will this be synchronized enough ? Maybe need to add a first blank pattern if the cam skips the first trig point
+                    for i, frame_buffer in enumerate(stream):
+                        sys.stdout.write(f"\rImage {i+1}/{Sensor.Nim} acquired")
+                        ims[:, :, i] = copy_frame(frame_buffer)
+    elif slm_type == "SLM":
+        resX, resY = 1920, 1080
+        slm = np.zeros((resY, resX, Sensor.N_mod), dtype=np.uint8)
+        for i in range(slm.shape[2]):
+            slm[:, :, i] = Sensor.modulate((resY, resX), pxsize=8)
+        slm_display = SLMscreen(resX, resY)
+        with dcam:
+            camera = dcam[0]
+            with camera:
+                print(f"Acquiring images ...")
+                for i in range(Sensor.N_mod):
+                    slm_display.update(slm[:, :, i])
+                    time.sleep(0.15)
+                    with Stream(camera, Sensor.N_os) as stream:
+                        for k, frame_buffer in enumerate(stream):
+                            sys.stdout.write(f"\rImage {i+1}/{Sensor.Nim} acquired")
+                            ims[:, :, k] = copy_frame(frame_buffer)
+    return ims, slm, Nx, Ny
+
 
 def main():
     # start timer
@@ -48,166 +160,138 @@ def main():
     # load SLM flatness correction
     # corr = Image.open("/home/tangui/Documents/SLM/deformation_correction_pattern/CAL_LSH0802200_780nm.bmp")
     # corr = Image.open("/home/tangui/Documents/phase_retrieval/dev/phases/U14-2048-201133-06-04-07_808nm.png")
-    corr = np.zeros((1080, 1920))
-    wvl = Sensor.wavelength
-    z3 = Sensor.z
-    delta4x = Sensor.d_CAM
-    delta4y = Sensor.d_CAM
-    slm_type = 'SLM'
-    # Setting up the camera for acquisition
-    Cam = EasyPySpin.VideoCapture(0)
-    zoom_factor = 1
-    Nx = int(Cam.get(cv2.CAP_PROP_FRAME_WIDTH)*zoom_factor)
-    Ny = int(Cam.get(cv2.CAP_PROP_FRAME_HEIGHT)*zoom_factor)
-    delta3x = wvl * z3 / (Nx * delta4x)
-    delta3y = wvl * z3 / (Ny * delta4y)
-    ims = np.zeros((Ny, Nx, Sensor.Nim))
-    if slm_type == 'DMD':
-        resX, resY = 1920, 1080
-        slm = np.ones((resY, resX, Sensor.N_mod))
-        # slm_display = SLMscreen(resX, resY)
-        slm_display = slmpy.SLMdisplay(isImageLock=True)
+    # corr = np.zeros((1080, 1920))
+    # wvl = Sensor.wavelength
+    # z3 = Sensor.z
+    # delta4x = Sensor.d_CAM
+    # delta4y = Sensor.d_CAM
+    slm_type = 'DMD'
+    # if slm_type == 'DMD':
+    ims, slm, Nx, Ny = capture_ims_hamamatsu(Sensor, slm_type)
 
-        slm_display.update(slm[:, :, 0])
-        print(f"Displaying 1 st SLM pattern")
-        for obs in range(Sensor.N_os):
-            ret, frame = Cam.read()
-            T = alignment(frame)
-            frame = cv2.warpAffine(frame, T, frame.shape)
-            ims[:, :, obs] = zoom(cv2.flip(frame, 0), zoom_factor)
-        for i in range(1, int(Sensor.N_mod/2)):
-            slm[:, :, 2 * i] = Sensor.modulate_binary((resY, resX), pxsize=1)
-            slm_display.update(slm[:, :, 2 * i])
-            for obs in range(Sensor.N_os):
-                ret, frame = Cam.read()
-                frame = alignment(frame)
-                ims[:, :, 2 * Sensor.N_os*i+obs] = zoom(cv2.flip(frame, 0),
-                                                        zoom_factor)
-            slm[:, :, 2 * i + 1] = np.ones((resY, resX)) - slm[:, :, 2 * i]
-            slm_display.update(slm[:, :, 2 * i+1])
-            for obs in range(Sensor.N_os):
-                ret, frame = Cam.read()
-                frame = alignment(frame)
-                ims[:, :, 2 * i + 1 + obs] = zoom(cv2.flip(frame, 0),
-                                                  zoom_factor)
-    elif slm_type == 'SLM':
-        resX, resY = 1920, 1080
-        angle = 0  # to correct for misalignment btwn camera and SLM
-        slm_display = SLMscreen(resX, resY)
-        # slm_display = slmpy.SLMdisplay(isImageLock=True)
-        slm = np.ones((resY, resX, Sensor.N_mod))
-        # slm_display.updateArray(slm[:, :, 0].astype('uint8'))
-        slm_display.update(slm[:, :, 0].astype('uint8'))
-        ret, frame = Cam.read()
-        frame = cv2.flip(frame, 0)
-        mask = frame > Sensor.threshold*np.max(frame)
-        for i in range(0, Sensor.N_mod):
-            slm[:, :, i] = Sensor.modulate((resY, resX), pxsize=8)
-            # slm[:, :, i] = Sensor.modulate_binary((resY, resX), pxsize=10)
-            print(f"Displaying {i + 1} th SLM pattern")
-            # slm_display.updateArray((250*((1/255)*(256*slm[:, :, i]-corr)%256)).astype('uint8'))
-            slm_display.update((250*((1/255)*(256*slm[:, :, i]-corr)%256)).astype('uint8'))
-            slm_display.update((250*((1/255)*(256*slm[:, :, i]-corr)%256)).astype('uint8'))
-            # time.sleep(1)
-            for obs in range(Sensor.N_os):
-                # time.sleep(0.05)
-                ret, frame = Cam.read()
-                # frame = cv2.warpAffine(frame, T, frame.shape)
-                frame = cv2.flip(frame, 0)
-                # frame = cv2.rotate(frame, cv2.ROTATE_90_CLOCKWISE)
-                # frame = ndimage.rotate(frame, -angle, reshape=False)
-                # ims[:,:,Sensor.N_os*i+obs]= zoom(frame, zoom_factor)
-                print(f"Recording image nbr : {Sensor.N_os*i+obs}")
-                ims[:, :, Sensor.N_os*i+obs] = frame*mask
-        slm_display.close()
-        Cam.release()
+    # elif slm_type == 'SLM':
+    #     # Setting up the camera for acquisition
+    #     Cam = EasyPySpin.VideoCapture(0)
+    #     Nx = int(Cam.get(cv2.CAP_PROP_FRAME_WIDTH))
+    #     Ny = int(Cam.get(cv2.CAP_PROP_FRAME_HEIGHT))
+    #     # Cam.cam.AdcBitDepth.SetValue(PySpin.AdcBitDepth_Bit12)
+    #     # Cam.cam.PixelFormat.SetValue(PySpin.PixelFormat_Mono8)
+    #     # Cam.set(cv2.CAP_PROP_FPS, 88.0)
+    #     delta3x = wvl * z3 / (Nx * delta4x)
+    #     delta3y = wvl * z3 / (Ny * delta4y)
+    #     ims = np.zeros((Ny, Nx, Sensor.Nim))
+    #     resX, resY = 1920, 1080
+    #     angle = 0  # to correct for misalignment btwn camera and SLM
+    #     slm_display = SLMscreen(resX, resY)
+    #     slm = np.ones((resY, resX, Sensor.N_mod))
+    #     slm_display.update(slm[:, :, 0].astype('uint8'))
+    #     ret, frame = Cam.read()
+    #     frame = cv2.flip(frame, 0)
+    #     mask = frame > Sensor.threshold*np.max(frame)
+    #     for i in range(Sensor.N_mod):
+    #         slm[:, :, i] = Sensor.modulate((resY, resX), pxsize=8)
+    #         print(f"Displaying {i} th SLM pattern")
+    #         slm_pic = (250*((1/255)*(256*slm[:, :, i]-corr)%256)).astype('uint8')
+    #         slm_display.update(slm_pic)
+    #         time.sleep(0.15)
+    #         t0 = time.time()
+    #         for obs in range(Sensor.N_os):
+    #             # time.sleep(0.05)
+    #             ret, frame = Cam.read()
+    #             # frame = cv2.warpAffine(frame, T, frame.shape)
+    #             frame = cv2.flip(frame, 0)
+    #             # frame = cv2.rotate(frame, cv2.ROTATE_90_CLOCKWISE)
+    #             # frame = ndimage.rotate(frame, -angle, reshape=False)
+    #             # ims[:,:,Sensor.N_os*i+obs]= zoom(frame, zoom_factor)
+    #             print(f"Recording image nbr : {Sensor.N_os*i+obs}")
+    #             ims[:, :, Sensor.N_os*i+obs] = frame*mask
+    #         t = time.time()-t0
+    #         print(f"Took {t} s to grab the frames")
+    #     slm_display.close()
+    #     Cam.release()
     if slm_type == 'DMD':
-        SLM = Sensor.process_SLM(slm, Nx, Ny, delta4x, delta4y, type="amp")
-        SLM[np.abs(SLM) > 0.5] = 1 + 1j*0
-        SLM[SLM <= 0.5] = 0 + 1j*0
+        SLM = Sensor.process_SLM(slm, Nx, Ny, Sensor.d_CAM, Sensor.d_CAM, type="amp")
     elif slm_type == 'SLM':
-        SLM = Sensor.process_SLM(slm, Nx, Ny, delta4x, delta4y, type="phi")
-
+        SLM = Sensor.process_SLM(slm, Nx, Ny, Sensor.d_CAM, Sensor.d_CAM, type="phi")
+    # plt.imshow(np.abs(SLM[:, :, 0]))
+    # plt.show()
     print('\nModulated images are captured')
     # reconstruction
     # process the captured image : converting to amplitude and padding if needed
-    ims = (ims/(2**8)).astype(np.float32)
+    ims = (ims/(2**16)).astype(np.float32)
     print('\nDisplaying captured images')
     y0 = Sensor.process_ims(ims, Nx, Ny)
     # for k in range(y0.shape[2]):
     plt.imshow(y0[:, :, 0], vmin=0, vmax=1)
-    #    plt.imshow(y0[:,:,k], vmin=0, vmax=1)
-    #    plt.title(f"{k}")
-    #    plt.scatter(N/2,N/2, color='r', marker='.')
     plt.show()
     # Recon initilization
-    T_run_0 = time.time()
-    u3_est, u4_est, idx_converge = Sensor.WISHrun_vec(y0, SLM, delta3x,
-                                                      delta3y, delta4x,
-                                                      delta4y)
-    np.save("u4_est.npy", u4_est)
-    T_run = time.time()-T_run_0
-    # Backpropagation distance for the 2nd plot
-    z2 = 160e-3
+    # T_run_0 = time.time()
+    # u3_est, u4_est, idx_converge = Sensor.WISHrun_vec(y0, SLM, delta3x,
+    #                                                   delta3y, delta4x,
+    #                                                   delta4y)
+    # np.save("u4_est.npy", u4_est)
+    # T_run = time.time()-T_run_0
+    # # Backpropagation distance for the 2nd plot
+    # z2 = 130e-3
     # u2_est = Sensor.frt_gpu(u4_est, Sensor.d_CAM, Sensor.d_CAM,
-    #                         Sensor.wavelength, -z2)
-    Z2 = np.linspace(95e-3, 400e-3, 25)
-    for z2 in Z2:
-        u2_est = Sensor.frt_gpu(u4_est, Sensor.d_CAM, Sensor.d_CAM,
-                                Sensor.wavelength, Sensor.n, -z2)
-        u2_est = cp.asnumpy(u2_est)
-        plt.imshow(np.abs(u2_est))
-        plt.title(f"{1e3*z2} mm")
-        plt.show()
-    u2_est = cp.asnumpy(u2_est)
-    u3_est = cp.asnumpy(u3_est)
-    u4_est = cp.asnumpy(u4_est)
-    # total time
-    T = time.time()-T0
-    print(f"\n Time spent in the GS loop : {T_run} s")
-    print(f"\n Total time elapsed : {T} s")
-    fig = plt.figure()
-    ax3 = fig.add_subplot(141)
-    ax4 = fig.add_subplot(142)
-    ax6 = fig.add_subplot(143)
-    ax5 = fig.add_subplot(144)
-    divider3 = make_axes_locatable(ax3)
-    cax3 = divider3.append_axes('right', size='5%', pad=0.05)
-    divider4 = make_axes_locatable(ax4)
-    cax4 = divider4.append_axes('right', size='5%', pad=0.05)
-    divider6 = make_axes_locatable(ax6)
-    cax6 = divider6.append_axes('right', size='5%', pad=0.05)
-    im3 = ax3.imshow(abs(u4_est)**2, cmap='viridis', vmin=0, vmax=1)
-    ax3.set_title('intensity estimation (camera plane)')
-    im4 = ax4.imshow(np.angle(u4_est), cmap='twilight_shifted', vmin=-np.pi,
-                     vmax=np.pi)
-    ax4.set_title('Phase estimation')
-    im6 = ax6.imshow(np.abs(u3_est)**2, cmap='viridis', vmin=0, vmax=1)
-    ax6.set_title('Back-propagated field (SLM plane)')
-    ax5.plot(5*np.arange(0, len(idx_converge), 1), idx_converge)
-    ax5.set_title("Convergence curve")
-    ax5.set_xlabel("Iteration")
-    ax5.set_ylabel("RMS error of the estimated field")
-    ax5.set_yscale('log')
-    fig.colorbar(im3, cax=cax3)
-    fig.colorbar(im4, cax=cax4)
-    fig.colorbar(im6, cax=cax6)
-    plt.show()
-    fig = plt.figure()
-    ax0 = fig.add_subplot(121)
-    ax1 = fig.add_subplot(122)
-    divider0 = make_axes_locatable(ax0)
-    divider1 = make_axes_locatable(ax1)
-    cax0 = divider0.append_axes('right', size='5%', pad=0.05)
-    cax1 = divider1.append_axes('right', size='5%', pad=0.05)
-    im0 = ax0.imshow(abs(u2_est) ** 2, cmap='viridis')  # , vmin=0, vmax=1)
-    im1 = ax1.imshow(np.angle(u2_est), cmap='twilight_shifted', vmin=-np.pi,
-                     vmax=np.pi)
-    ax0.set_title("Back-propagated intensity")
-    ax1.set_title("Back-propagated phase")
-    fig.colorbar(im0, cax0)
-    fig.colorbar(im1, cax1)
-    plt.show()
+    #                         Sensor.wavelength, Sensor.n, -z2)
+    # # Z2 = np.linspace(170e-3, 195e-3, 25)
+    # # for z2 in Z2:
+    # #     u2_est = Sensor.frt_gpu(u4_est, Sensor.d_CAM, Sensor.d_CAM,
+    # #                             Sensor.wavelength, Sensor.n, -z2)
+    # #     u2_est = cp.asnumpy(u2_est)
+    # #     plt.imshow(np.abs(u2_est))
+    # #     plt.title(f"{1e3*z2} mm")
+    # #     plt.show()
+    # u2_est = cp.asnumpy(u2_est)
+    # u3_est = cp.asnumpy(u3_est)
+    # u4_est = cp.asnumpy(u4_est)
+    # # total time
+    # T = time.time()-T0
+    # print(f"\n Time spent in the GS loop : {T_run} s")
+    # print(f"\n Total time elapsed : {T} s")
+    # fig = plt.figure()
+    # ax3 = fig.add_subplot(141)
+    # ax4 = fig.add_subplot(142)
+    # ax6 = fig.add_subplot(143)
+    # ax5 = fig.add_subplot(144)
+    # divider3 = make_axes_locatable(ax3)
+    # cax3 = divider3.append_axes('right', size='5%', pad=0.05)
+    # divider4 = make_axes_locatable(ax4)
+    # cax4 = divider4.append_axes('right', size='5%', pad=0.05)
+    # divider6 = make_axes_locatable(ax6)
+    # cax6 = divider6.append_axes('right', size='5%', pad=0.05)
+    # im3 = ax3.imshow(abs(u4_est)**2, cmap='viridis', vmin=0, vmax=1)
+    # ax3.set_title('intensity estimation (camera plane)')
+    # im4 = ax4.imshow(np.angle(u4_est), cmap='twilight_shifted', vmin=-np.pi,
+    #                  vmax=np.pi)
+    # ax4.set_title('Phase estimation')
+    # im6 = ax6.imshow(np.abs(u3_est)**2, cmap='viridis', vmin=0, vmax=1)
+    # ax6.set_title('Back-propagated field (SLM plane)')
+    # ax5.plot(5*np.arange(0, len(idx_converge), 1), idx_converge)
+    # ax5.set_title("Convergence curve")
+    # ax5.set_xlabel("Iteration")
+    # ax5.set_ylabel("RMS error of the estimated field")
+    # ax5.set_yscale('log')
+    # fig.colorbar(im3, cax=cax3)
+    # fig.colorbar(im4, cax=cax4)
+    # fig.colorbar(im6, cax=cax6)
+    # plt.show()
+    # fig = plt.figure()
+    # ax0 = fig.add_subplot(121)
+    # ax1 = fig.add_subplot(122)
+    # divider0 = make_axes_locatable(ax0)
+    # divider1 = make_axes_locatable(ax1)
+    # cax0 = divider0.append_axes('right', size='5%', pad=0.05)
+    # cax1 = divider1.append_axes('right', size='5%', pad=0.05)
+    # im0 = ax0.imshow(abs(u2_est) ** 2, cmap='viridis')  # , vmin=0, vmax=1)
+    # im1 = ax1.imshow(np.angle(u2_est), cmap='twilight_shifted', vmin=-np.pi,
+    #                  vmax=np.pi)
+    # ax0.set_title("Back-propagated intensity")
+    # ax1.set_title("Back-propagated phase")
+    # fig.colorbar(im0, cax0)
+    # fig.colorbar(im1, cax1)
+    # plt.show()
 
 
 if __name__ == "__main__":

@@ -45,23 +45,24 @@ also available WISH_lkb_cpu.py
 """
 
 # #Kernel for amplitude imposing and multplication / conjugation
-# with open("kernels.cu") as file:
-#     code = file.read()
-#     kernels = cp.RawModule(code=code, backend="nvcc")
-#     kernels.compile()
-#     ker_impose_amp = kernels.get_function("impose_amp")
-#     ker_multiply_conjugate = kernels.get_function("multiply_conjugate")
-    # gpu_frt = kernels.get_function('frt_gpu_vec_s')
+with open("kernels.cu") as file:
+    code = file.read()
+    kernels = cp.RawModule(code=code, backend="nvcc")
+    kernels.compile()
+    ker_impose_amp = kernels.get_function("impose_amp")
+    ker_multiply_conjugate = kernels.get_function("multiply_conjugate")
+#     gpu_frt = kernels.get_function('frt_gpu_vec_s')
 # kernels = cp.RawModule(path="kernels", options=("--use_fast_math",), backend="nvcc")
-# ker_impose_amp = kernels.get_function("impose_amp")
+ker_impose_amp = kernels.get_function("impose_amp")
 # ker_multiply_conjugate = kernels.get_function("multiply_conjugate")
-@cp.fuse()
-def ker_impose_amp(y, x):
-    x[:] = cp.abs(y) * cp.exp(1j*cp.angle(x))
+# @cp.fuse()
+# def ker_impose_amp(y, x):
+#     x[:] = cp.abs(y) * cp.exp(1j*cp.angle(x))
 
-@cp.fuse()
-def ker_multiply_conjugate(y, x):
-    x[:] *= cp.conj(y)
+# @cp.fuse()
+# def ker_multiply_conjugate(y, x):
+#     x[:] *= cp.conj(y)
+
 
 class WISH_Sensor:
     def __init__(self, cfg_path):
@@ -677,20 +678,30 @@ class WISH_Sensor:
             delta4y (float): Camera plane pitch along y
             plan_fft (cufft_fft_plan, optional): FFT Plan. Defaults to None.
         """
-        block = (8, 8, 8)
+        # block = (128, 1, 1)
+        # grid = ((np.prod(SLM.shape))//block[0], 1, 1)
+        block = (1, 32, 32)
         grid = (SLM.shape[0]//block[0], SLM.shape[1]//block[1], SLM.shape[2]//block[2])
+        # out = cp.empty_like(SLM)
+        # ker_indices_3d[grid, block](out)
+        # plt.imshow(np.abs(cp.asnumpy(out[0, :, :])))
+        # plt.show()
+        # grid = (SLM.shape[0]//block[0], SLM.shape[1]//block[1], SLM.shape[2]//block[2])
+        # print(grid)
         U3 = SLM * u3
         self.frt_gpu_vec_s(U3, delta3x, delta3y,
                                 self.wavelength, self.z, plan=plan_fft)
         # U3 = y0 * cp.exp(1j*cp.angle(U3))
-        # ker_impose_amp(grid, block, (y0, U3, U3.shape[0], U3.shape[1], U3.shape[2]))
-        ker_impose_amp(y0, U3)
+        ker_impose_amp(grid, block, (y0, U3, U3, U3.shape[0], U3.shape[1], U3.shape[2]))
+        # ker_impose_amp(y0, U3)
         self.frt_gpu_vec_s(U3, delta4x, delta4y, self.wavelength,
                                 -self.z, plan=plan_fft)
-        # U3 *= cp.conj(SLM)
-        ker_multiply_conjugate(SLM, U3)
+        U3 *= cp.conj(SLM)
+        # ker_multiply_conjugate(SLM, U3)
+        # ker_multiply_conjugate(grid, block, (SLM, U3, U3.shape[0], U3.shape[1], U3.shape[2]))
         u3[:] = cp.mean(U3, 0)  # average over batches
 
+#TODO(Tangui) Rewrite the GS_step in CUDA C++ :'( :'( :'( 
     def do_GS_step_fast(self, y0: np.ndarray, SLM: np.ndarray,
                     u3: np.ndarray, delta3x: float, delta3y: float, 
                     delta4x: float, delta4y: float, plan):  
@@ -777,22 +788,26 @@ class WISH_Sensor:
         SLM = cp.fft.ifftshift(SLM, axes=(1, 2))
         u3 = cp.fft.ifftshift(u3)
         y0 = cp.fft.fftshift(y0, axes=(1, 2))
+        t_exec_gpu = cp.empty(N_iter, dtype=cp.float32)
+        start_gpu0 = cp.cuda.Event()
+        end_gpu0 = cp.cuda.Event()
+        start_gpu0.record()
         with cp.cuda.profile():
             for jj in range(N_iter):
                 # sys.stdout.flush()
-                # start_gpu = cp.cuda.Event()
-                # end_gpu = cp.cuda.Event()
-                # start_gpu.record()
+                start_gpu = cp.cuda.Event()
+                end_gpu = cp.cuda.Event()
+                start_gpu.record()
                 # t0 = time.perf_counter()
                 # self.do_GS_step(y0, SLM, u3, delta3x, delta3y, delta4x, delta4y,
                 #                 plan_fft=plan_fft)
-                self.do_GS_step_fast(y0, SLM, u3, delta3x, delta3y, delta4x, delta4y,
+                self.do_GS_step(y0, SLM, u3, delta3x, delta3y, delta4x, delta4y,
                                      plan_fft)
                 # t1 = time.perf_counter()
-                # end_gpu.record()
-                # end_gpu.synchronize()
+                end_gpu.record()
+                end_gpu.synchronize()
                 # t_exec_cpu[jj] = t1-t0
-                # t_exec_gpu[jj] = cp.cuda.get_elapsed_time(start_gpu, end_gpu)*1e-3
+                t_exec_gpu[jj] = cp.cuda.get_elapsed_time(start_gpu, end_gpu)*1e-3
                 # convergence index matrix for every 5 iterations
                 # if jj % 5 == 0:
                 #     idx_converge0 = (1 / np.sqrt(Nx*Ny)) * \
@@ -824,8 +839,13 @@ class WISH_Sensor:
             u3 = cp.fft.fftshift(u3)
         # propagate solution to sensor plane
         T_run = time.time()-T_run_0
+        end_gpu0.record()
+        end_gpu0.synchronize()
+        T_run_gpu = cp.cuda.get_elapsed_time(start_gpu0, end_gpu0)*1e-3
         u4_est = self.frt_gpu_s(u3, delta3x, delta3y, self.wavelength, self.z) * Q
-        print(f"\n Time spent in the GS loop : {T_run} s")
+        print(f"\nTime spent in the GS loop : {T_run} s")
+        print(f"GPU time spent in the GS loop : {T_run_gpu} s")
+        print(f"GPU per iteration time {cp.mean(t_exec_gpu)} +/- {cp.std(t_exec_gpu)} s")
         # plt.plot(t_exec_cpu)
         # plt.plot(t_exec_gpu)
         # plt.plot(np.cumsum(t_exec_cpu))
@@ -838,6 +858,28 @@ class WISH_Sensor:
         # plt.legend(["CPU", "GPU", "Cumulative CPU", "Cumulative GPU", "Cumulative tot"])
         return u3, u4_est, idx_converge
 
+#TODO(Tangui) Wrap WISH_measurement into a proper camera object
+class WISH_Camera_gpu(WISH_Sensor):
+    def __init__(self, cam, slm):
+        # self.frame_buffer = ... (efficient way to store / reuse a frame buffer)
+        return
+    
+    def alignment(self):
+        # something smart to auto align with an alignment target pattern ?
+        # extract affine transform from target pattern deformation as explained in OpenCV doc
+        # https://learnopencv.com/camera-calibration-using-opencv/
+        return
+    
+    def capture_ims(self):
+        # should check DMD or SLM model, Camera model to reuse one or the other function
+        # capture_ims_flir or capture_ims_XXX
+        return
+
+    def run(self):
+        # runs in an infinite loop to update the frame_buffer
+        # what callbacks should I need ?
+        return
+    
 
 class WISH_Sensor_cpu:
     def __init__(self, cfg_path):
