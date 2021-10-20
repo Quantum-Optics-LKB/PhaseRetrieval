@@ -54,14 +54,14 @@ with open("kernels.cu") as file:
 #     gpu_frt = kernels.get_function('frt_gpu_vec_s')
 # kernels = cp.RawModule(path="kernels", options=("--use_fast_math",), backend="nvcc")
 ker_impose_amp = kernels.get_function("impose_amp")
-# ker_multiply_conjugate = kernels.get_function("multiply_conjugate")
-# @cp.fuse()
-# def ker_impose_amp(y, x):
-#     x[:] = cp.abs(y) * cp.exp(1j*cp.angle(x))
+ker_multiply_conjugate = kernels.get_function("multiply_conjugate")
+@cp.fuse()
+def ker_impose_amp_norm(y, x, a):
+    return cp.abs(y) * cp.exp(1j*cp.angle(a*x))
 
-# @cp.fuse()
-# def ker_multiply_conjugate(y, x):
-#     x[:] *= cp.conj(y)
+@cp.fuse()
+def ker_multiply_conjugate_sum_norm(y, x, a):
+    return cp.sum(a * x * cp.conj(y), axis=0)
 
 
 class WISH_Sensor:
@@ -678,33 +678,25 @@ class WISH_Sensor:
             delta4y (float): Camera plane pitch along y
             plan_fft (cufft_fft_plan, optional): FFT Plan. Defaults to None.
         """
-        # block = (128, 1, 1)
-        # grid = ((np.prod(SLM.shape))//block[0], 1, 1)
-        block = (1, 32, 32)
-        grid = (SLM.shape[0]//block[0], SLM.shape[1]//block[1], SLM.shape[2]//block[2])
-        # out = cp.empty_like(SLM)
-        # ker_indices_3d[grid, block](out)
-        # plt.imshow(np.abs(cp.asnumpy(out[0, :, :])))
-        # plt.show()
-        # grid = (SLM.shape[0]//block[0], SLM.shape[1]//block[1], SLM.shape[2]//block[2])
-        # print(grid)
+        tpb = (1, 16, 16)
+        bpg = (1, SLM.shape[0] // tpb[0], SLM.shape[1] // tpb[1])
         U3 = SLM * u3
         self.frt_gpu_vec_s(U3, delta3x, delta3y,
                                 self.wavelength, self.z, plan=plan_fft)
         # U3 = y0 * cp.exp(1j*cp.angle(U3))
-        ker_impose_amp(grid, block, (y0, U3, U3, U3.shape[0], U3.shape[1], U3.shape[2]))
+        ker_impose_amp(bpg, tpb, (y0, U3, U3, U3.shape[0], U3.shape[1], U3.shape[2]))
         # ker_impose_amp(y0, U3)
         self.frt_gpu_vec_s(U3, delta4x, delta4y, self.wavelength,
                                 -self.z, plan=plan_fft)
         U3 *= cp.conj(SLM)
         # ker_multiply_conjugate(SLM, U3)
-        # ker_multiply_conjugate(grid, block, (SLM, U3, U3.shape[0], U3.shape[1], U3.shape[2]))
+        # ker_multiply_conjugate(bpg, tpb, (SLM, U3, U3.shape[0], U3.shape[1], U3.shape[2]))
         u3[:] = cp.mean(U3, 0)  # average over batches
 
 #TODO(Tangui) Rewrite the GS_step in CUDA C++ :'( :'( :'( 
-    def do_GS_step_fast(self, y0: np.ndarray, SLM: np.ndarray,
-                    u3: np.ndarray, delta3x: float, delta3y: float, 
-                    delta4x: float, delta4y: float, plan):  
+    def do_GS_step_fast(self, y0: cp.ndarray, SLM: cp.ndarray,
+                    u3: cp.ndarray, delta3x: cp.float32, delta3y: cp.float32, 
+                    delta4x: cp.float32, delta4y: cp.float32, plan):  
         """Does one step of the GS loop in place, faster provided you have a plan ...
 
         Args:
@@ -718,21 +710,13 @@ class WISH_Sensor:
             delta4y (float): Camera plane pitch along y
             plan_fft (cufft_fft_plan): FFT Plan. 
         """
-        grid = (8, 1024, 2)
-        block = (512,)
         norm_f = (delta3x*delta3y)/(1j * self.wavelength * self.z)
-        norm_i = (delta3x*delta3y)/(-1j * self.wavelength * self.z)
+        norm_i = (delta4x*delta4y)/(-1j * self.wavelength * self.z)
         U3 = SLM * u3
-        # self.frt_gpu_vec_s(U3, delta3x, delta3y,
-        #                         self.wavelength, self.z, plan=plan)
         plan.fft(U3, U3, cp.cuda.cufft.CUFFT_FORWARD) 
-        ker_impose_amp(norm_f*y0, U3)
-        # self.frt_gpu_vec_s(U3, delta4x, delta4y, self.wavelength,
-        #                         -self.z, plan=plan)
+        U3 = ker_impose_amp_norm(y0, U3, norm_f)
         plan.fft(U3, U3, cp.cuda.cufft.CUFFT_INVERSE) 
-        # U3 *= cp.conj(SLM)
-        ker_multiply_conjugate(norm_i*SLM, U3)
-        u3[:] = cp.mean(U3, 0)  # average over batches
+        u3[:] = ker_multiply_conjugate_sum_norm(SLM, U3, (norm_i/U3.shape[0]))
 
 
     def WISHrun_vec(self, y0: np.ndarray, SLM: np.ndarray, delta3x: float,
@@ -788,26 +772,24 @@ class WISH_Sensor:
         SLM = cp.fft.ifftshift(SLM, axes=(1, 2))
         u3 = cp.fft.ifftshift(u3)
         y0 = cp.fft.fftshift(y0, axes=(1, 2))
-        t_exec_gpu = cp.empty(N_iter, dtype=cp.float32)
-        start_gpu0 = cp.cuda.Event()
-        end_gpu0 = cp.cuda.Event()
-        start_gpu0.record()
+        # t_exec_gpu = cp.empty(N_iter, dtype=cp.float32)
+        # start_gpu0 = cp.cuda.Event()
+        # end_gpu0 = cp.cuda.Event()
+        # start_gpu0.record()
         with cp.cuda.profile():
             for jj in range(N_iter):
                 # sys.stdout.flush()
-                start_gpu = cp.cuda.Event()
-                end_gpu = cp.cuda.Event()
-                start_gpu.record()
-                # t0 = time.perf_counter()
+                # start_gpu = cp.cuda.Event()
+                # end_gpu = cp.cuda.Event()
+                # start_gpu.record()
                 # self.do_GS_step(y0, SLM, u3, delta3x, delta3y, delta4x, delta4y,
                 #                 plan_fft=plan_fft)
                 self.do_GS_step(y0, SLM, u3, delta3x, delta3y, delta4x, delta4y,
                                      plan_fft)
-                # t1 = time.perf_counter()
-                end_gpu.record()
-                end_gpu.synchronize()
-                # t_exec_cpu[jj] = t1-t0
-                t_exec_gpu[jj] = cp.cuda.get_elapsed_time(start_gpu, end_gpu)*1e-3
+                sys.stdout.write(f"\rGS iteration {jj+1}/{N_iter}")
+                # end_gpu.record()
+                # end_gpu.synchronize()
+                # t_exec_gpu[jj] = cp.cuda.get_elapsed_time(start_gpu, end_gpu)*1e-3
                 # convergence index matrix for every 5 iterations
                 # if jj % 5 == 0:
                 #     idx_converge0 = (1 / np.sqrt(Nx*Ny)) * \
@@ -839,13 +821,13 @@ class WISH_Sensor:
             u3 = cp.fft.fftshift(u3)
         # propagate solution to sensor plane
         T_run = time.time()-T_run_0
-        end_gpu0.record()
-        end_gpu0.synchronize()
-        T_run_gpu = cp.cuda.get_elapsed_time(start_gpu0, end_gpu0)*1e-3
+        # end_gpu0.record()
+        # end_gpu0.synchronize()
+        # T_run_gpu = cp.cuda.get_elapsed_time(start_gpu0, end_gpu0)*1e-3
         u4_est = self.frt_gpu_s(u3, delta3x, delta3y, self.wavelength, self.z) * Q
         print(f"\nTime spent in the GS loop : {T_run} s")
-        print(f"GPU time spent in the GS loop : {T_run_gpu} s")
-        print(f"GPU per iteration time {cp.mean(t_exec_gpu)} +/- {cp.std(t_exec_gpu)} s")
+        # print(f"GPU time spent in the GS loop : {T_run_gpu} s")
+        # print(f"GPU per iteration time {cp.mean(t_exec_gpu)} +/- {cp.std(t_exec_gpu)} s")
         # plt.plot(t_exec_cpu)
         # plt.plot(t_exec_gpu)
         # plt.plot(np.cumsum(t_exec_cpu))
