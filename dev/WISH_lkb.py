@@ -45,16 +45,16 @@ also available WISH_lkb_cpu.py
 """
 
 # #Kernel for amplitude imposing and multplication / conjugation
-with open("kernels.cu") as file:
-    code = file.read()
-    kernels = cp.RawModule(code=code, backend="nvcc")
-    kernels.compile()
-    ker_impose_amp = kernels.get_function("impose_amp")
-    ker_multiply_conjugate = kernels.get_function("multiply_conjugate")
+# with open("kernels.cu") as file:
+#     code = file.read()
+#     kernels = cp.RawModule(code=code, backend="nvcc")
+#     kernels.compile()
+#     ker_impose_amp = kernels.get_function("impose_amp")
+#     ker_multiply_conjugate = kernels.get_function("multiply_conjugate")
 #     gpu_frt = kernels.get_function('frt_gpu_vec_s')
 # kernels = cp.RawModule(path="kernels", options=("--use_fast_math",), backend="nvcc")
-ker_impose_amp = kernels.get_function("impose_amp")
-ker_multiply_conjugate = kernels.get_function("multiply_conjugate")
+# ker_impose_amp = kernels.get_function("impose_amp")
+# ker_multiply_conjugate = kernels.get_function("multiply_conjugate")
 @cp.fuse()
 def ker_impose_amp_norm(y, x, a):
     return cp.abs(y) * cp.exp(1j*cp.angle(a*x))
@@ -420,7 +420,7 @@ class WISH_Sensor:
         delta3x = self.wavelength * self.z / (Nx * delta4x)
         delta3y = self.wavelength * self.z / (Ny * delta4y)
         if slm.dtype == 'uint8':
-            slm = slm.astype(float)/256.
+            slm = slm.astype(np.float32)/256.
         # check if SLM can be centered in the computational window
         Nxslm = slm.shape[1]
         Nyslm = slm.shape[0]
@@ -662,7 +662,7 @@ class WISH_Sensor:
         u4_est = self.frt_gpu_s(u3, delta3x, delta3y, self.wavelength, z3) * Q
         return u3, u4_est, idx_converge
 
-    def do_GS_step(self, y0: np.ndarray, SLM: np.ndarray,
+    def do_GS_step(self, y0: np.ndarray, SLM: np.ndarray, U3: np.ndarray,
                     u3: np.ndarray, delta3x: float, delta3y: float, 
                     delta4x: float, delta4y: float, plan_fft=None):
         """Does one step of the GS loop in place
@@ -693,8 +693,54 @@ class WISH_Sensor:
         # ker_multiply_conjugate(bpg, tpb, (SLM, U3, U3.shape[0], U3.shape[1], U3.shape[2]))
         u3[:] = cp.mean(U3, 0)  # average over batches
 
+    def do_CG_step(self, jj: int, u3_new: np.ndarray, y0: np.ndarray, SLM: np.ndarray, U3: np.ndarray,
+                    u3: np.ndarray, delta3x: float, delta3y: float, 
+                    delta4x: float, delta4y: float, plan_fft=None):
+        """Does one step of the GS loop in place
+
+        Args:
+            jj (int) : iteration number
+            u3_new = cp.empty_like(u3)
+            y0 (np.ndarray): Target intensity vector
+            SLM (np.ndarray): SLM patterns
+            U3 (np.ndarray): Circulating fields
+            u3 (np.ndarray): Current estimation
+            delta3x (float): SLM plane pitch along x
+            delta3y (float): SLM plane pitch along y
+            delta4x (float): Camera plane pitch along x
+            delta4y (float): Camera plane pitch along y
+            plan_fft (cufft_fft_plan, optional): FFT Plan. Defaults to None.
+        """
+        # apply modulation
+        U3 = SLM * u3
+        # propagate to image field
+        self.frt_gpu_vec_s(U3, delta3x, delta3y,
+                                self.wavelength, self.z, plan=plan_fft)
+        # compute error
+        err = cp.mean(cp.linalg.norm(cp.abs(U3)-cp.abs(y0), axis=(0, 1))**2)*1/(U3.shape[0]*U3.shape[1])
+        # impose amplitude constraint
+        U3 = y0 * cp.exp(1j*cp.angle(U3))
+        # back propagate
+        self.frt_gpu_vec_s(U3, delta4x, delta4y, self.wavelength,
+                                -self.z, plan=plan_fft)
+        # remove modulation
+        U3 *= cp.conj(SLM)
+        # reduction 
+        u3_new[:] = cp.mean(U3, 0) 
+        if jj == 0:
+            D = u3_new - u3
+        else:
+            D = u3_new - u3 + (err/self.err_old)*self.D_old
+        # update guess while adding gradient
+        # u3[:] = u3_new + self.hk*(u3_new-self.u3_old)
+        u3[:] = u3_new + self.hk*D
+        self.u3_old[:] = u3_new
+        self.D_old[:] = D
+        self.err_old = err
+        return err
+
 #TODO(Tangui) Rewrite the GS_step in CUDA C++ :'( :'( :'( 
-    def do_GS_step_fast(self, y0: cp.ndarray, SLM: cp.ndarray,
+    def do_GS_step_fast(self, y0: cp.ndarray, SLM: cp.ndarray, U3: np.ndarray,
                     u3: cp.ndarray, delta3x: cp.float32, delta3y: cp.float32, 
                     delta4x: cp.float32, delta4y: cp.float32, plan):  
         """Does one step of the GS loop in place, faster provided you have a plan ...
@@ -712,9 +758,9 @@ class WISH_Sensor:
         """
         norm_f = (delta3x*delta3y)/(1j * self.wavelength * self.z)
         norm_i = (delta4x*delta4y)/(-1j * self.wavelength * self.z)
-        U3 = SLM * u3
+        U3[:] = SLM * u3
         plan.fft(U3, U3, cp.cuda.cufft.CUFFT_FORWARD) 
-        U3 = ker_impose_amp_norm(y0, U3, norm_f)
+        U3[:] = ker_impose_amp_norm(y0, U3, norm_f)
         plan.fft(U3, U3, cp.cuda.cufft.CUFFT_INVERSE) 
         u3[:] = ker_multiply_conjugate_sum_norm(SLM, U3, (norm_i/U3.shape[0]))
 
@@ -755,16 +801,18 @@ class WISH_Sensor:
         y0 = cp.asarray(y0, dtype=cp.complex64)
         SLM = SLM.transpose(2, 0, 1)
         y0 = y0.transpose(2, 0, 1)
-        for ii in range(N_os):
+        for ii in range(self.Nim):
             y0_batch = y0[ii, :, :]
             SLM_batch = SLM[ii, :, :]
             U3[ii, :, :] = self.frt_gpu_s(y0_batch / Q, delta4x, delta4y,
                                           self.wavelength, -self.z) *\
                 cp.conj(SLM_batch)  # y0_batch gpu
-        u3 = cp.mean(U3[0:N_os, :, :], 0)
+        u3 = cp.mean(U3, 0)
+        u30 = cp.copy(u3)
         del SLM_batch, y0_batch
         # GS loop
         idx_converge = np.empty(N_iter//5)
+        idx_converge_gc = np.empty(N_iter, dtype=cp.float32)
         plan_fft = get_fft_plan(U3, axes=(1, 2), value_type='C2C')
         # gpu_frt(cp.empty((3,3,3), dtype=cp.complex64), 1.0, 1.0, 1.0, 1.0, plan_fft)
         T_run_0 = time.time()
@@ -776,6 +824,11 @@ class WISH_Sensor:
         # start_gpu0 = cp.cuda.Event()
         # end_gpu0 = cp.cuda.Event()
         # start_gpu0.record()
+        u3_new = cp.empty_like(u3) # for CG
+        self.u3_old = u3.copy() # for CG
+        self.hk = 1.0 # for CG
+        self.err_old = 1.0
+        self.D_old = np.empty_like(u3)
         with cp.cuda.profile():
             for jj in range(N_iter):
                 # sys.stdout.flush()
@@ -784,17 +837,35 @@ class WISH_Sensor:
                 # start_gpu.record()
                 # self.do_GS_step(y0, SLM, u3, delta3x, delta3y, delta4x, delta4y,
                 #                 plan_fft=plan_fft)
-                self.do_GS_step(y0, SLM, u3, delta3x, delta3y, delta4x, delta4y,
-                                     plan_fft)
-                sys.stdout.write(f"\rGS iteration {jj+1}/{N_iter}")
+                # self.do_GS_step_fast(y0, SLM, U3, u3, delta3x, delta3y, delta4x, delta4y,
+                #                      plan_fft)
+                # sys.stdout.write(f"\rGS iteration {jj+1}/{N_iter}")
+                err = self.do_CG_step(jj, u3_new, y0, SLM, U3, u3, delta3x, delta3y, delta4x, delta4y,
+                        plan_fft)
+                idx_converge_gc[jj] = err
+                sys.stdout.write(f"\rGS iteration {jj+1}/{N_iter}  err = {err}")
+                if jj > 0 and jj%100==0:
+                    self.hk *= 0.75
+                eps = cp.abs(idx_converge_gc[jj] - idx_converge_gc[jj-1])/idx_converge_gc[jj]
+                if eps < 1e-5:
+                    idx_converge_gc = idx_converge_gc[0:jj]
+                    break
+                # if idx_converge_gc[jj] >= idx_converge_gc[jj-10]:
+                #     self.hk *= 0.9
                 # end_gpu.record()
                 # end_gpu.synchronize()
                 # t_exec_gpu[jj] = cp.cuda.get_elapsed_time(start_gpu, end_gpu)*1e-3
-                # convergence index matrix for every 5 iterations
+                # norm_f = (delta3x*delta3y)/(1j * self.wavelength * self.z)
+                # norm_i = (delta4x*delta4y)/(-1j * self.wavelength * self.z)
+                # U3[:] = SLM * u3
+                # plan_fft.fft(U3, U3, cp.cuda.cufft.CUFFT_FORWARD)
+                # U3 *= norm_f
+                # # convergence index matrix for every 5 iterations
                 # if jj % 5 == 0:
-                #     idx_converge0 = (1 / np.sqrt(Nx*Ny)) * \
-                #         cp.linalg.norm((cp.abs(U3)-y0) *
-                #                        (y0 > 0), axis=(1, 2))
+                #     # idx_converge0 = (1 / np.sqrt(Nx*Ny)) * \
+                #     #     cp.linalg.norm((cp.abs(U3)-y0) *
+                #     #                    (y0 > 0), axis=(0, 1))
+                #     idx_converge0 = cp.linalg.norm((cp.abs(U3)-y0)*(y0 > 0), axis=(0, 1))/cp.linalg.norm(y0*(y0>0))
                 #     idx_converge[jj//5] = cp.mean(idx_converge0)
                 #     prt = f"\rGS iteration {jj + 1}  (convergence index : {idx_converge[jj//5]})"
                 #     sys.stdout.write(prt)
@@ -803,13 +874,16 @@ class WISH_Sensor:
                 # if (jj > 1) & (jj % 5 == 0):
                 #     eps = cp.abs(idx_converge[jj//5] - idx_converge[jj//5 - 1]) / \
                 #         idx_converge[jj//5]
-                #     if eps < 1e-3:
+                #     if eps < 1e-4:
                 #         # if cp.abs(idx_converge[jj]) < 5e-6:
                 #         # if idx_converge[jj]>idx_converge[jj-1]:
                 #         print('\nConverged. Exit the GS loop ...')
                 #         # idx_converge = idx_converge[0:jj]
                 #         idx_converge = cp.asnumpy(idx_converge[0:jj//5])
                 #         break
+                # U3[:] = ker_impose_amp_norm(y0, U3, 1.0)
+                # plan_fft.fft(U3, U3, cp.cuda.cufft.CUFFT_INVERSE) 
+                # u3[:] = ker_multiply_conjugate_sum_norm(SLM, U3, (norm_i/U3.shape[0]))
                 # if jj == N_iter-1:
                 #     print('\nMax iteration number reached. Exit ...')
             # optional profiling
@@ -838,7 +912,7 @@ class WISH_Sensor:
         # plt.title("Run time")
         # plt.yscale("log")
         # plt.legend(["CPU", "GPU", "Cumulative CPU", "Cumulative GPU", "Cumulative tot"])
-        return u3, u4_est, idx_converge
+        return u3, u4_est, idx_converge_gc
 
 #TODO(Tangui) Wrap WISH_measurement into a proper camera object
 class WISH_Camera_gpu(WISH_Sensor):
