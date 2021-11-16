@@ -27,12 +27,12 @@ def main():
     phi0 = np.array(Image.open('phases/harambe_256_full.bmp'))[:, :, 0]
     # im = cp.asnumpy(zoom(cp.asarray(im), [7, 7]))
     # phi0 = cp.asnumpy(zoom(cp.asarray(phi0), [7, 7]))
-    im = cp.asnumpy(zoom(cp.asarray(im), [1, 1]))
-    phi0 = cp.asnumpy(zoom(cp.asarray(phi0), [1, 1]))
+    im = cp.asnumpy(zoom(cp.asarray(im), [4, 4]))
+    phi0 = cp.asnumpy(zoom(cp.asarray(phi0), [4, 4]))
     # paddingy = int((2160-(7*256))/2)
     # paddingx = int((3840-(7*256))/2)
-    paddingy = int((512-(1*256))/2)
-    paddingx = int((512-(1*256))/2)
+    paddingy = int((2048-(4*256))/2)
+    paddingx = int((2048-(4*256))/2)
     u40 = np.pad(im.astype(np.float32)/256, ((paddingy, paddingy),
                                              (paddingx, paddingx)))
     u40 = Sensor.gaussian_profile(u40, 0.5)
@@ -54,7 +54,7 @@ def main():
     if slm_type == 'DMD':
         slm = np.ones((1080, 1920, Sensor.N_mod))
         for i in range(0, Sensor.N_mod//2):
-            slm[:, :, 2 * i] = 2*Sensor.modulate_binary((1080, 1920), pxsize=5)
+            slm[:, :, 2 * i] = 2*Sensor.modulate_binary((1080, 1920), pxsize=1)
             slm[:, :, 2 * i + 1] = np.ones((1080, 1920)) - slm[:, :, 2 * i]
     elif slm_type == 'SLM':
         slm = np.ones((1080, 1920, Sensor.N_mod))
@@ -64,7 +64,7 @@ def main():
     if slm_type == 'DMD':
         SLM = Sensor.process_SLM(slm, Nx, Ny, delta4x, delta4y, type="amp")
         # DMD angle corrections
-        th1 = 24.0 * (np.pi/180)
+        th1 = 0.0 * (np.pi/180)
         th2 = -45.0 * (np.pi/180)
         x = (SLM.shape[1]//2 - np.linspace(0, SLM.shape[1]-1, SLM.shape[1]))
         y = (SLM.shape[0]//2 - np.linspace(0, SLM.shape[0]-1, SLM.shape[0]))
@@ -78,7 +78,7 @@ def main():
         alpha_1D = np.arctan(np.tan(alpha)/np.sqrt(2))
         beta_1D = 2*theta_1D-alpha_1D#np.arctan(np.tan(beta)/np.sqrt(2))
         dmd_blaz_corr = np.exp((X-Y)*complex(0,1)*2*np.pi/Sensor.wavelength*Sensor.d_SLM*(np.sin(alpha_1D)+np.sin(beta_1D)))
-        SLM = np.array([SLM[:, :, i]*dmd_blaz_corr for i in range(SLM.shape[2])]).transpose((1, 2, 0))
+        # SLM = np.array([SLM[:, :, i]*dmd_blaz_corr for i in range(SLM.shape[2])]).transpose((1, 2, 0))
         fig, ax = plt.subplots(1, 3)
         divider0 = make_axes_locatable(ax[0])
         cax0 = divider0.append_axes('right', size='5%', pad=0.05)
@@ -142,21 +142,18 @@ def main():
     u3_est, u4_est, idx_converge = Sensor.WISHrun_vec(
                             y0, SLM, delta3x, delta3y, delta4x, delta4y)
     u41 = cp.asarray(u40)
-    phase_RMS = (1 / (2 * np.pi * (np.sqrt((Nx-2*paddingx)*(Ny-2*paddingy)))))\
-        * cp.asarray(
-        [cp.linalg.norm((cp.angle(u41) - cp.angle(cp.exp(1j * th) * u4_est)) *
-                        (cp.abs(u41) > 0)) for th in cp.linspace(
-                        -np.pi, np.pi, 512)])
+    diff = ((cp.angle(u41) - cp.angle(u4_est))%(2*np.pi)) * (cp.abs(u41) > 0)
+    phase_rms = cp.linalg.norm(diff[cp.abs(u41) > 0]-cp.mean(diff[cp.abs(u41) > 0]))/(2*np.pi*(np.sqrt((Nx-2*paddingx)*(Ny-2*paddingy))))
     # phase_RMS = (1/(2*np.pi*(np.sqrt((Nx-2*paddingx)*(Ny-2*paddingy))))) * \
     #     np.asarray([np.linalg.norm((np.angle(u40) - np.angle(np.exp(1j * th) * u4_est)) *
     #                     (np.abs(u40) > 0)) for th in np.linspace(
     #                     -np.pi, np.pi, 512)])
-    phase_rms = cp.asnumpy(cp.min(phase_RMS))
-    phase_rms = np.min(phase_RMS)
+    # phase_rms = cp.asnumpy(cp.min(phase_RMS))
+    # phase_rms = np.min(phase_RMS)
     u3_est = cp.asnumpy(u3_est)
     u4_est = cp.asnumpy(u4_est)
 
-    print(f"\n Phase RMS is {'{:.3f} %'.format(100*phase_rms)}")
+    print(f"\n Phase RMS is {'{:.6f} %'.format(100*phase_rms)}")
     # total time
     T = time.time()-T0
     print(f"\n Total time elapsed : {T} s")
@@ -180,11 +177,12 @@ def main():
     ax4.set_title('Initial phase', fontsize=14)
     im3 = ax2.imshow(np.abs(u4_est), cmap='viridis', vmin=0, vmax=1, interpolation=None)
     ax2.set_title('Amplitude estimation cam', fontsize=14)
-    im5 = ax5.imshow(np.angle(u4_est), cmap='twilight', vmin=-np.pi,
-                     vmax=np.pi, interpolation=None)
+    diff_show = cp.asnumpy(diff*(cp.abs(u41) > 0)-cp.mean(diff[cp.abs(u41) > 0]))
+    im5 = ax5.imshow(diff_show, cmap='viridis', vmin=np.nanmin(diff_show[np.abs(u40) > 0]),
+                     vmax=np.nanmax(diff_show[np.abs(u40) > 0]), interpolation=None)
     # ax5.text(8, 18, f"RMS = {'{:.3f}%'.format(100 * phase_rms)}",
             #  bbox={'facecolor': 'white', 'pad': 4})
-    ax5.set_title('Phase estimation', fontsize=14)
+    ax5.set_title('Phase difference', fontsize=14)
     # ax3.plot(np.arange(0, len(idx_converge)*5, 5), idx_converge)
     ax3.plot(idx_converge)
     ax3.set_yscale('log')
