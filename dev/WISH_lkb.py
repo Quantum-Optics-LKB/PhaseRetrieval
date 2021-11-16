@@ -18,6 +18,7 @@ from scipy.ndimage import shift as shift
 from cupyx.scipy import fft as fftsc
 from cupyx.scipy.fft import get_fft_plan
 from cupyx.time import repeat as repeat_c
+from cupyx.profiler import profile
 from timeit import repeat
 import pyfftw
 import mkl_fft
@@ -739,7 +740,7 @@ class WISH_Sensor:
         self.err_old = err
         return err
 
-    def do_CG_step_fast(self, jj: int, u3_new: np.ndarray, y0: np.ndarray, SLM: np.ndarray, U3: np.ndarray,
+    def do_CG_step_fast(self, y0: np.ndarray, SLM: np.ndarray, U3: np.ndarray,
                     u3: np.ndarray, delta3x: float, delta3y: float, 
                     delta4x: float, delta4y: float, plan=None):
         """Does one step of the GS loop in place
@@ -764,21 +765,21 @@ class WISH_Sensor:
         # propagate to image field
         plan.fft(U3, U3, cp.cuda.cufft.CUFFT_FORWARD) 
         # compute error
-        err = cp.mean(cp.linalg.norm(cp.abs(U3*norm_f)-cp.abs(y0), axis=(0, 1))**2)*1/(U3.shape[0]*U3.shape[1])
+        # err = cp.mean(cp.linalg.norm(cp.abs(U3*norm_f)-cp.abs(y0), axis=(0, 1))**2)*1/(U3.shape[0]*U3.shape[1])
         # impose amplitude constraint
-        U3[:] = ker_impose_amp_norm(y0, U3, norm_f)
+        U3 = ker_impose_amp_norm(y0, U3, norm_f)
         # back propagate
         plan.fft(U3, U3, cp.cuda.cufft.CUFFT_INVERSE) 
         # reduction 
-        u3_new[:] = ker_multiply_conjugate_sum_norm(SLM, U3, (norm_i/U3.shape[0]))
+        u3[:] = ker_multiply_conjugate_sum_norm(SLM, U3, (norm_i/U3.shape[0]))
         # if jj == 0:
         #     D = u3_new - u3
         # else:
         #     D = u3_new - u3 + (err/self.err_old)*self.D_old
         # update guess while adding gradient
-        u3[:] = u3_new + self.hk*(u3_new-self.u3_old)
+        u3[:] = u3 + self.hk*(u3-self.u3_old)
         # u3[:] = u3_new + self.hk*D
-        self.u3_old[:] = u3_new
+        self.u3_old[:] = u3
         # self.D_old[:] = D
         # self.err_old = err
         return 1.0
@@ -802,9 +803,9 @@ class WISH_Sensor:
         """
         norm_f = (delta3x*delta3y)/(1j * self.wavelength * self.z)
         norm_i = (delta4x*delta4y)/(-1j * self.wavelength * self.z)
-        U3[:] = SLM * u3
+        U3 = SLM * u3
         plan.fft(U3, U3, cp.cuda.cufft.CUFFT_FORWARD) 
-        U3[:] = ker_impose_amp_norm(y0, U3, norm_f)
+        U3 = ker_impose_amp_norm(y0, U3, norm_f)
         plan.fft(U3, U3, cp.cuda.cufft.CUFFT_INVERSE) 
         u3[:] = ker_multiply_conjugate_sum_norm(SLM, U3, (norm_i/U3.shape[0]))
 
@@ -873,7 +874,7 @@ class WISH_Sensor:
         self.hk = 1.0 # for CG
         self.err_old = 1.0
         self.D_old = np.empty_like(u3)
-        with cp.cuda.profile():
+        with profile():
             for jj in range(N_iter):
                 # sys.stdout.flush()
                 # start_gpu = cp.cuda.Event()
@@ -883,17 +884,19 @@ class WISH_Sensor:
                 #                 plan_fft=plan_fft)
                 # self.do_GS_step_fast(y0, SLM, U3, u3, delta3x, delta3y, delta4x, delta4y,
                 #                      plan_fft)
-                # sys.stdout.write(f"\rGS iteration {jj+1}/{N_iter}")
-                err = self.do_CG_step(jj, u3_new, y0, SLM, U3, u3, delta3x, delta3y, delta4x, delta4y,
-                        plan_fft)
-                idx_converge_gc[jj] = err
-                sys.stdout.write(f"\rGS iteration {jj+1}/{N_iter}  err = {err}")
-                if jj > 0 and jj%100==0:
-                    self.hk *= 0.75
-                eps = cp.abs(idx_converge_gc[jj] - idx_converge_gc[jj-1])/idx_converge_gc[jj]
-                if eps < 1e-5:
-                    idx_converge_gc = idx_converge_gc[0:jj]
-                    break
+                self.do_CG_step_fast(y0, SLM, U3, u3, delta3x, delta3y, delta4x, delta4y,
+                                     plan_fft)
+                sys.stdout.write(f"\rGS iteration {jj+1}/{N_iter}")
+                # err = self.do_CG_step(jj, u3_new, y0, SLM, U3, u3, delta3x, delta3y, delta4x, delta4y,
+                #         plan_fft)
+                # idx_converge_gc[jj] = err
+                # sys.stdout.write(f"\rGS iteration {jj+1}/{N_iter}  err = {err}")
+                # if jj > 0 and jj%100==0:
+                #     self.hk *= 0.75
+                # eps = cp.abs(idx_converge_gc[jj] - idx_converge_gc[jj-1])/idx_converge_gc[jj]
+                # if eps < 1e-5:
+                #     idx_converge_gc = idx_converge_gc[0:jj]
+                #     break
                 # if idx_converge_gc[jj] >= idx_converge_gc[jj-10]:
                 #     self.hk *= 0.9
                 # end_gpu.record()

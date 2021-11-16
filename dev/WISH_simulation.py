@@ -144,6 +144,7 @@ def main():
     u41 = cp.asarray(u40)
     diff = ((cp.angle(u41) - cp.angle(u4_est))%(2*np.pi)) * (cp.abs(u41) > 0)
     phase_rms = cp.linalg.norm(diff[cp.abs(u41) > 0]-cp.mean(diff[cp.abs(u41) > 0]))/(2*np.pi*(np.sqrt((Nx-2*paddingx)*(Ny-2*paddingy))))
+    phase_pv = cp.nanmax(diff[cp.abs(u41) > 0]-cp.mean(diff[cp.abs(u41) > 0]))-cp.nanmin(diff[cp.abs(u41) > 0]-cp.mean(diff[cp.abs(u41) > 0]))
     # phase_RMS = (1/(2*np.pi*(np.sqrt((Nx-2*paddingx)*(Ny-2*paddingy))))) * \
     #     np.asarray([np.linalg.norm((np.angle(u40) - np.angle(np.exp(1j * th) * u4_est)) *
     #                     (np.abs(u40) > 0)) for th in np.linspace(
@@ -153,7 +154,7 @@ def main():
     u3_est = cp.asnumpy(u3_est)
     u4_est = cp.asnumpy(u4_est)
 
-    print(f"\n Phase RMS is {'{:.6f} %'.format(100*phase_rms)}")
+    print(f"\n Phase RMS is {'{:.6f} %'.format(100*phase_rms)}. Phase PV is {'{:.6f} rad'.format(phase_pv)}")
     # total time
     T = time.time()-T0
     print(f"\n Total time elapsed : {T} s")
@@ -163,6 +164,7 @@ def main():
     ax3 = fig.add_subplot(233)
     ax4 = fig.add_subplot(234)
     ax5 = fig.add_subplot(235)
+    ax6 = fig.add_subplot(236)
     divider1 = make_axes_locatable(ax1)
     cax1 = divider1.append_axes('right', size='5%', pad=0.05)
     divider2 = make_axes_locatable(ax4)
@@ -177,7 +179,7 @@ def main():
     ax4.set_title('Initial phase', fontsize=14)
     im3 = ax2.imshow(np.abs(u4_est), cmap='viridis', vmin=0, vmax=1, interpolation=None)
     ax2.set_title('Amplitude estimation cam', fontsize=14)
-    diff_show = cp.asnumpy(diff*(cp.abs(u41) > 0)-cp.mean(diff[cp.abs(u41) > 0]))
+    diff_show = cp.asnumpy(diff*(cp.abs(u41) > 0))
     im5 = ax5.imshow(diff_show, cmap='viridis', vmin=np.nanmin(diff_show[np.abs(u40) > 0]),
                      vmax=np.nanmax(diff_show[np.abs(u40) > 0]), interpolation=None)
     # ax5.text(8, 18, f"RMS = {'{:.3f}%'.format(100 * phase_rms)}",
@@ -189,6 +191,11 @@ def main():
     ax3.set_title("Convergence curve", fontsize=14)
     ax3.set_xlabel("Iteration")
     ax3.set_ylabel("RMS error of the estimated field")
+    ax6.plot(diff_show[1024, paddingx:2048-paddingx])
+    ax6.set_yscale('linear')
+    ax6.set_title("Cut along center", fontsize=14)
+    ax6.set_xlabel("Position")
+    ax6.set_ylabel("Difference")
     cbar1 = fig.colorbar(im1, cax=cax1)
     cbar2 = fig.colorbar(im2, cax=cax2)
     cbar3 = fig.colorbar(im3, cax=cax3)
