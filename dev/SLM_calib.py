@@ -1,7 +1,7 @@
 import numpy as np
 import matplotlib.pyplot as plt
 import EasyPySpin
-from SLM import SLMscreen
+from SLM import SLM
 from PIL import Image
 import time
 import cv2
@@ -54,7 +54,7 @@ def lens(f, b):
     y = pxpitch*(resY//2 - np.linspace(0, resY-1, resY))
     X, Y = np.meshgrid(x, y)
     R = np.sqrt(X**2 + Y**2)
-    k = 1.5*2*np.pi/780e-9
+    k = 1.5*2*np.pi/795e-9
     phi = (k*R**2)/(2*f)
     phi = phi % (2*np.pi)
     phi /= 2*np.pi
@@ -62,29 +62,29 @@ def lens(f, b):
     return out
 
 
-L = lens(95.6e-3, 255)
-slm = SLMscreen(resX, resY)
+L = lens(1.0, 255)
+slm = SLM(resX, resY)
 #cam = EasyPySpin.VideoCapture(0)
 G = grating(0, 206, 20)
 C = circle(100, 20, 128)
 #load SLM flatness correction
 # corr = np.array(Image.open("/home/tangui/Documents/SLM/deformation_correction_pattern/CAL_LSH0802200_780nm.bmp"))
-corr = Image.open("/home/tangui/Documents/phase_retrieval/dev/phases/U14-2048-201133-06-04-07_808nm.png")
-# corr = np.zeros((resY, resX))
+# corr = Image.open("/home/tangui/Documents/phase_retrieval/dev/phases/U14-2048-201133-06-04-07_808nm.png")
+corr = np.zeros((resY, resX))
 #plt.imshow(((206/255)*(C+corr)%256).astype("uint8"))
 #plt.show()
 
 # slm.update(((250/255)*(L-corr) % 256).astype("uint8"))
-slm.update(((250/255)*(C-corr) % 256).astype("uint8"))
+# slm.update(((250/255)*(C-corr) % 256).astype("uint8"))
 
-# slm.update(C)
-time.sleep(200000)
+# slm.update(L)
+# time.sleep(200000)
 #Displays lenses
-for f in np.linspace(94e-3, 96e-3, 20):
+for f in np.linspace(750e-3, 900e-3, 20):
     print(f)
     L = lens(f, 255)
     slm.update(((250/255)*(L-corr) % 256).astype("uint8"))
-    time.sleep(0.25)
+    time.sleep(0.5)
 #for b in np.linspace(180,255, 60, dtype='uint8'):
 #    print(b)
     #G=grating(0,b,20)
